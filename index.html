@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>設備檢修維護管理平台 - 登入</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script type="module" src="firebase-init.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-300">
+
+  <div class="w-full max-w-md bg-white rounded-2xl shadow-xl p-8">
+    <div class="text-center mb-8">
+      <div class="mx-auto mb-3 w-14 h-14 rounded-full bg-blue-600 flex items-center justify-center text-white text-2xl">🛠</div>
+      <h1 class="text-xl font-bold text-slate-800">設備檢修維護管理平台</h1>
+      <p class="text-sm text-slate-500 mt-1">請登入以繼續使用系統</p>
+    </div>
+
+    <form id="loginForm" class="space-y-4" novalidate>
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1" for="userId">帳號</label>
+        <input id="userId" name="userId" type="text" maxlength="15" required
+          class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="請輸入帳號" autocomplete="username">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1" for="password">密碼</label>
+        <input id="password" name="password" type="password" maxlength="30" required
+          class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="請輸入密碼" autocomplete="current-password">
+      </div>
+
+      <div id="errorMsg" class="hidden text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2"></div>
+
+      <button id="loginBtn" type="submit"
+        class="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-medium py-2.5 rounded-lg transition">
+        登入
+      </button>
+    </form>
+
+    <p class="text-xs text-slate-400 text-center mt-6">© 日翊 FME 設備檢修維護管理平台</p>
+  </div>
+
+<script src="script.js"></script>
+</body>
+</html>

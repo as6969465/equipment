@@ -1,0 +1,50 @@
+/* 設備檢修維護管理平台 - 共用樣式微調（Tailwind 為主，此檔僅補充少量自訂樣式） */
+
+body {
+  font-family: -apple-system, "Segoe UI", "Microsoft JhengHei", sans-serif;
+}
+
+input:focus {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+/* ===== QR 標籤列印 ===== */
+/* 列印專用區域：畫面上移出可視範圍，僅在列印時顯示 */
+#print-area {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+}
+#print-area .print-title {
+  font-weight: 700;
+  font-size: 18px;
+  margin: 8px 0 12px;
+}
+.qr-label {
+  page-break-inside: avoid;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #print-area,
+  #print-area * {
+    visibility: visible;
+  }
+  #print-area {
+    left: 0;
+    right: 0;
+    width: 100%;
+  }
+}
+
