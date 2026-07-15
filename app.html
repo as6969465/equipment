@@ -541,11 +541,21 @@ function RecordsView({ user, records, equipment, categories }) {
   const isAdmin = user.ROLE === "admin";
   const [filterEquipment, setFilterEquipment] = useState("");
   const [filterMajor, setFilterMajor] = useState("");
+  const [filterUser, setFilterUser] = useState("");
 
   const visibleRecords = records.filter((r) => (isAdmin ? true : r.userId === user.USER_ID));
+
+  // 人員清單僅管理員可見：從全部紀錄中彙整不重複的人員供篩選
+  const staffList = useMemo(() => {
+    const map = new Map();
+    records.forEach((r) => map.set(r.userId, r.userName));
+    return Array.from(map, ([id, name]) => ({ id, name }));
+  }, [records]);
+
   const filtered = visibleRecords.filter((r) =>
     (!filterEquipment || r.equipmentId === filterEquipment) &&
-    (!filterMajor || r.majorId === filterMajor)
+    (!filterMajor || r.majorId === filterMajor) &&
+    (!isAdmin || !filterUser || r.userId === filterUser)
   );
 
   function nameOf(list, id) { return list.find((x) => x.id === id)?.name || id; }
@@ -570,6 +580,12 @@ function RecordsView({ user, records, equipment, categories }) {
           <option value="">全部大分類</option>
           {categories.filter((c) => c.parent === null).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
+        {isAdmin && (
+          <select value={filterUser} onChange={(e) => setFilterUser(e.target.value)} className="border rounded px-2 py-1.5 text-sm">
+            <option value="">全部人員</option>
+            {staffList.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        )}
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto">
@@ -609,28 +625,54 @@ function RecordsView({ user, records, equipment, categories }) {
 
 // ===================== 數據分析 =====================
 
-function AnalyticsView({ records, equipment, categories }) {
-  const totalRecords = records.length;
-  const durations = records.map((r) => minutesBetween(r.startTime, r.endTime)).filter((d) => d !== null);
+function AnalyticsView({ user, records, equipment, categories }) {
+  const isAdmin = user.ROLE === "admin";
+  const [filterUserId, setFilterUserId] = useState("");
+
+  // 人員清單：從全部紀錄彙整不重複的人員，供管理員切換檢視
+  const staffList = useMemo(() => {
+    const m = new Map();
+    records.forEach((r) => m.set(r.userId, r.userName));
+    return Array.from(m, ([id, name]) => ({ id, name }));
+  }, [records]);
+
+  // 一般人員固定只看自己的數據；管理員可切換「全部」或指定人員
+  const scopedRecords = useMemo(() => {
+    if (!isAdmin) return records.filter((r) => r.userId === user.USER_ID);
+    return filterUserId ? records.filter((r) => r.userId === filterUserId) : records;
+  }, [records, isAdmin, filterUserId, user]);
+
+  const totalRecords = scopedRecords.length;
+  const durations = scopedRecords.map((r) => minutesBetween(r.startTime, r.endTime)).filter((d) => d !== null);
   const avgDuration = durations.length ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0;
 
   const overdue = equipment.filter((eq) => daysUntilDue(eq.lastMaintenance, eq.cycleDays) < 0);
   const upcoming = equipment.filter((eq) => { const d = daysUntilDue(eq.lastMaintenance, eq.cycleDays); return d >= 0 && d <= 7; });
 
   const majors = categories.filter((c) => c.parent === null);
-  const countsByMajor = majors.map((m) => ({ name: m.name, count: records.filter((r) => r.majorId === m.id).length }));
+  const countsByMajor = majors.map((m) => ({ name: m.name, count: scopedRecords.filter((r) => r.majorId === m.id).length }));
   const maxCount = Math.max(1, ...countsByMajor.map((c) => c.count));
 
   const countsByUser = useMemo(() => {
     const m = {};
-    records.forEach((r) => { m[r.userName] = (m[r.userName] || 0) + 1; });
+    scopedRecords.forEach((r) => { m[r.userName] = (m[r.userName] || 0) + 1; });
     return Object.entries(m).map(([name, count]) => ({ name, count }));
-  }, [records]);
+  }, [scopedRecords]);
   const maxUserCount = Math.max(1, ...countsByUser.map((c) => c.count));
 
   return (
     <div className="px-4 sm:px-6 py-4">
-      <h2 className="text-lg font-bold text-slate-800 mb-3">數據分析儀表板</h2>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <h2 className="text-lg font-bold text-slate-800">數據分析儀表板</h2>
+        {isAdmin ? (
+          <select value={filterUserId} onChange={(e) => setFilterUserId(e.target.value)} className="border rounded px-2 py-1.5 text-sm">
+            <option value="">全部人員</option>
+            {staffList.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        ) : (
+          <Badge color="slate">僅顯示您本人的數據</Badge>
+        )}
+      </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
         <StatCard label="總維護紀錄數" value={totalRecords} />
@@ -751,7 +793,7 @@ function App() {
         />}
         {tab === "category" && isAdmin && <CategoryConfigView categories={categories} onAdd={(c) => setCategories([...categories, c])} onRemove={(id) => setCategories(categories.filter((c) => c.id !== id && c.parent !== id))} />}
         {tab === "records" && <RecordsView user={user} records={records} equipment={equipment} categories={categories} />}
-        {tab === "analytics" && <AnalyticsView records={records} equipment={equipment} categories={categories} />}
+        {tab === "analytics" && <AnalyticsView user={user} records={records} equipment={equipment} categories={categories} />}
       </div>
     </div>
   );
