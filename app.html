@@ -116,21 +116,22 @@ function QRLabel({ equipment, size = 180 }) {
 function TopNav({ user, tabs, active, onChange, onLogout }) {
   return (
     <div className="bg-white border-b border-slate-200 sticky top-0 z-10">
-      <div className="px-6 flex items-center justify-between h-14">
-        <div className="flex items-center gap-2 font-bold text-slate-800">
-          <span className="text-blue-600">🛠</span> 設備檢修維護管理平台
+      <div className="px-3 sm:px-6 flex items-center justify-between h-14 gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 font-bold text-slate-800 min-w-0 text-sm sm:text-base">
+          <span className="text-blue-600 shrink-0">🛠</span>
+          <span className="truncate">設備檢修維護管理平台</span>
         </div>
-        <div className="flex items-center gap-4 text-sm">
-          <span className="text-slate-500">{user.NAME}（{user.ROLE === "admin" ? "管理員" : "維護人員"}）</span>
-          <button onClick={onLogout} className="text-red-500 hover:text-red-600">登出</button>
+        <div className="flex items-center gap-2 sm:gap-4 text-xs sm:text-sm shrink-0">
+          <span className="text-slate-500 whitespace-nowrap">{user.NAME}<span className="hidden sm:inline">（{user.ROLE === "admin" ? "管理員" : "維護人員"}）</span></span>
+          <button onClick={onLogout} className="text-red-500 hover:text-red-600 shrink-0">登出</button>
         </div>
       </div>
-      <div className="px-6 flex gap-1 overflow-x-auto">
+      <div className="px-3 sm:px-6 flex gap-0.5 sm:gap-1 overflow-x-auto">
         {tabs.map((t) => (
           <button
             key={t.key}
             onClick={() => onChange(t.key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition ${
+            className={`px-2.5 sm:px-4 py-2 text-xs sm:text-sm font-medium border-b-2 whitespace-nowrap transition shrink-0 ${
               active === t.key ? "border-blue-600 text-blue-600" : "border-transparent text-slate-500 hover:text-slate-700"
             }`}
           >
@@ -227,7 +228,7 @@ function ScanRecordView({ user, equipment, categories, onSubmit, initialEquipmen
   }
 
   return (
-    <div className="max-w-4xl px-6 py-4">
+    <div className="max-w-4xl px-4 sm:px-6 py-4">
       <h2 className="text-lg font-bold text-slate-800 mb-3">QR 碼掃描紀錄</h2>
 
       {toast && <div className="mb-3 bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg px-3 py-2">{toast}</div>}
@@ -395,7 +396,7 @@ function EquipmentView({ equipment, canEdit, onAdd, onUpdate, onDelete }) {
   }
 
   return (
-    <div className="px-6 py-4">
+    <div className="px-4 sm:px-6 py-4">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-lg font-bold text-slate-800">設備 / QR 碼管理</h2>
         <div className="flex gap-2">
@@ -497,7 +498,7 @@ function CategoryConfigView({ categories, onAdd, onRemove }) {
   const [targetMajor, setTargetMajor] = useState("");
 
   return (
-    <div className="max-w-5xl px-6 py-4">
+    <div className="max-w-5xl px-4 sm:px-6 py-4">
       <h2 className="text-lg font-bold text-slate-800 mb-3">項目分類設定（大分類 / 小分類）</h2>
 
       <div className="bg-white border border-slate-200 rounded-xl p-3 mb-3 flex gap-2">
@@ -554,7 +555,7 @@ function RecordsView({ user, records, equipment, categories }) {
   }
 
   return (
-    <div className="px-6 py-4">
+    <div className="px-4 sm:px-6 py-4">
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-lg font-bold text-slate-800">維護作業紀錄查詢</h2>
         {!isAdmin && <Badge color="slate">僅顯示您本人的紀錄</Badge>}
@@ -628,7 +629,7 @@ function AnalyticsView({ records, equipment, categories }) {
   const maxUserCount = Math.max(1, ...countsByUser.map((c) => c.count));
 
   return (
-    <div className="px-6 py-4">
+    <div className="px-4 sm:px-6 py-4">
       <h2 className="text-lg font-bold text-slate-800 mb-3">數據分析儀表板</h2>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
