@@ -9,6 +9,7 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
 <script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script type="module" src="firebase-init.js"></script>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -695,11 +696,43 @@ function RecordsView({ user, records, equipment, categories, staff }) {
     return nameOf(categories, r.minorId);
   }
 
+  // 匯出目前篩選結果為 Excel 報表（.xlsx）
+  function exportReport() {
+    const rows = filtered.map((r) => ({
+      "紀錄編號": r.id,
+      "設備": nameOf(equipment, r.equipmentId),
+      "人員": r.userName,
+      "大分類": nameOf(categories, r.majorId),
+      "小分類/項目": minorLabel(r),
+      "開始時間": r.startTime ? r.startTime.replace("T", " ") : "",
+      "結束時間": r.endTime ? r.endTime.replace("T", " ") : "",
+      "耗時(分)": minutesBetween(r.startTime, r.endTime) ?? "",
+      "備註": r.note || "",
+    }));
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    sheet["!cols"] = [
+      { wch: 10 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 14 },
+      { wch: 18 }, { wch: 18 }, { wch: 8 }, { wch: 24 },
+    ];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, "維護紀錄");
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+    XLSX.writeFile(workbook, `維護紀錄報表_${stamp}.xlsx`);
+  }
+
   return (
     <div className="px-4 sm:px-6 py-4">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
         <h2 className="text-lg font-bold text-slate-800">維護作業紀錄查詢</h2>
-        {!isAdmin && <Badge color="slate">僅顯示您本人的紀錄</Badge>}
+        <div className="flex items-center gap-2">
+          {!isAdmin && <Badge color="slate">僅顯示您本人的紀錄</Badge>}
+          <button onClick={exportReport} disabled={filtered.length === 0}
+            className="text-sm bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white px-3 py-1.5 rounded-lg">
+            📊 匯出報表
+          </button>
+        </div>
       </div>
 
       <div className="flex gap-2 mb-3">
