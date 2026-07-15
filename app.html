@@ -45,7 +45,13 @@ const INITIAL_EQUIPMENT = [
 const INITIAL_RECORDS = [
   { id: "R-0001", equipmentId: "EQ-1F-001", userId: "demo", userName: "示範人員", majorId: "c1", minorId: "c1-1", note: "定期上油保養", startTime: "2026-07-10T09:00", endTime: "2026-07-10T09:30", createdAt: "2026-07-10T09:30" },
   { id: "R-0002", equipmentId: "EQ-2F-002", userId: "demo", userName: "示範人員", majorId: "c2", minorId: "c2-2", note: "馬達異音排除", startTime: "2026-07-12T13:00", endTime: "2026-07-12T14:10", createdAt: "2026-07-12T14:10" },
-  { id: "R-0003", equipmentId: "EQ-1F-002", userId: "admin", userName: "示範管理員", majorId: "c3", minorId: "c3-1", note: "例行巡檢正常", startTime: "2026-07-13T08:00", endTime: "2026-07-13T08:15", createdAt: "2026-07-13T08:15" },
+  { id: "R-0003", equipmentId: "EQ-1F-002", userId: "reyi", userName: "系統管理員", majorId: "c3", minorId: "c3-1", note: "例行巡檢正常", startTime: "2026-07-13T08:00", endTime: "2026-07-13T08:15", createdAt: "2026-07-13T08:15" },
+];
+
+// 人員名冊：帳號需與登入頁（index.html/script.js）的示範帳號對應
+const INITIAL_STAFF = [
+  { id: "demo", name: "示範人員", role: "staff", department: "1F 維護組", status: "active" },
+  { id: "reyi", name: "系統管理員", role: "admin", department: "數位賦能室", status: "active" },
 ];
 
 function minutesBetween(start, end) {
@@ -535,9 +541,134 @@ function CategoryConfigView({ categories, onAdd, onRemove }) {
 }
 function Date_now() { return Math.floor(performance.now() * 1000); }
 
+// ===================== 人員名冊 =====================
+
+const EMPTY_STAFF_FORM = { id: "", name: "", role: "staff", department: "", status: "active" };
+
+function StaffView({ staff, records, onAdd, onUpdate, onDelete }) {
+  const [form, setForm] = useState(EMPTY_STAFF_FORM);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null); // 正在編輯的帳號（null = 新增模式）
+
+  function startAdd() {
+    setEditingId(null);
+    setForm(EMPTY_STAFF_FORM);
+    setShowForm(true);
+  }
+
+  function startEdit(s) {
+    setEditingId(s.id);
+    setForm({ id: s.id, name: s.name, role: s.role, department: s.department, status: s.status });
+    setShowForm(true);
+  }
+
+  function cancelForm() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(EMPTY_STAFF_FORM);
+  }
+
+  function submit(e) {
+    e.preventDefault();
+    if (!form.id || !form.name) return;
+    if (editingId) {
+      onUpdate(editingId, { ...form });
+    } else {
+      if (staff.some((s) => s.id === form.id)) {
+        alert("此帳號已存在，請使用其他帳號。");
+        return;
+      }
+      onAdd({ ...form });
+    }
+    cancelForm();
+  }
+
+  function handleDelete(s) {
+    const hasRecords = records.some((r) => r.userId === s.id);
+    const message = hasRecords
+      ? `「${s.name}」（${s.id}）已有維護紀錄，刪除人員後歷史紀錄仍會保留，但紀錄清單將僅顯示原始帳號。確定要刪除此人員嗎？`
+      : `確定要刪除人員「${s.name}」（${s.id}）嗎？此動作無法復原。`;
+    if (window.confirm(message)) {
+      onDelete(s.id);
+      if (editingId === s.id) cancelForm();
+    }
+  }
+
+  return (
+    <div className="px-4 sm:px-6 py-4">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-lg font-bold text-slate-800">人員名冊</h2>
+        <button onClick={() => (showForm ? cancelForm() : startAdd())} className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700">
+          {showForm ? "取消" : "＋ 新增人員"}
+        </button>
+      </div>
+
+      {showForm && (
+        <form onSubmit={submit} className="bg-white border border-slate-200 rounded-xl p-3 mb-3 grid grid-cols-2 sm:grid-cols-6 gap-2">
+          <input placeholder="帳號" value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })} disabled={!!editingId}
+            className="border rounded px-2 py-1.5 text-sm disabled:bg-slate-100 disabled:text-slate-400" />
+          <input placeholder="姓名" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="border rounded px-2 py-1.5 text-sm" />
+          <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="border rounded px-2 py-1.5 text-sm">
+            <option value="staff">維護人員</option>
+            <option value="admin">管理員</option>
+          </select>
+          <input placeholder="負責部門/區域" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} className="border rounded px-2 py-1.5 text-sm" />
+          <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="border rounded px-2 py-1.5 text-sm">
+            <option value="active">在職</option>
+            <option value="inactive">停用</option>
+          </select>
+          <div className="flex gap-2">
+            <button type="submit" className="flex-1 bg-blue-600 text-white rounded px-3 py-1.5 text-sm">{editingId ? "儲存變更" : "儲存"}</button>
+            {editingId && <button type="button" onClick={cancelForm} className="flex-1 bg-slate-100 text-slate-600 rounded px-3 py-1.5 text-sm">取消</button>}
+          </div>
+        </form>
+      )}
+
+      <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-slate-500 text-xs">
+            <tr>
+              <th className="text-left px-3 py-2">帳號</th>
+              <th className="text-left px-3 py-2">姓名</th>
+              <th className="text-left px-3 py-2">角色</th>
+              <th className="text-left px-3 py-2">負責部門/區域</th>
+              <th className="text-left px-3 py-2">狀態</th>
+              <th className="text-left px-3 py-2">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {staff.map((s) => (
+              <tr key={s.id} className="border-t border-slate-100">
+                <td className="px-3 py-2 text-slate-500">{s.id}</td>
+                <td className="px-3 py-2 font-medium text-slate-800">{s.name}</td>
+                <td className="px-3 py-2">
+                  <Badge color={s.role === "admin" ? "amber" : "slate"}>{s.role === "admin" ? "管理員" : "維護人員"}</Badge>
+                </td>
+                <td className="px-3 py-2 text-slate-500">{s.department || "-"}</td>
+                <td className="px-3 py-2">
+                  <Badge color={s.status === "active" ? "green" : "red"}>{s.status === "active" ? "在職" : "停用"}</Badge>
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex gap-2">
+                    <button onClick={() => startEdit(s)} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded px-2 py-1">✏ 編輯</button>
+                    <button onClick={() => handleDelete(s)} className="text-xs bg-red-50 hover:bg-red-100 text-red-600 rounded px-2 py-1">🗑 刪除</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {staff.length === 0 && (
+              <tr><td colSpan="6" className="text-center text-slate-400 py-6">尚無人員資料</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ===================== 紀錄查詢（後台） =====================
 
-function RecordsView({ user, records, equipment, categories }) {
+function RecordsView({ user, records, equipment, categories, staff }) {
   const isAdmin = user.ROLE === "admin";
   const [filterEquipment, setFilterEquipment] = useState("");
   const [filterMajor, setFilterMajor] = useState("");
@@ -545,12 +676,12 @@ function RecordsView({ user, records, equipment, categories }) {
 
   const visibleRecords = records.filter((r) => (isAdmin ? true : r.userId === user.USER_ID));
 
-  // 人員清單僅管理員可見：從全部紀錄中彙整不重複的人員供篩選
+  // 人員清單僅管理員可見：以人員名冊為主，並補上名冊中已刪除但仍有歷史紀錄的人員
   const staffList = useMemo(() => {
-    const map = new Map();
-    records.forEach((r) => map.set(r.userId, r.userName));
+    const map = new Map(staff.map((s) => [s.id, s.name]));
+    records.forEach((r) => { if (!map.has(r.userId)) map.set(r.userId, r.userName); });
     return Array.from(map, ([id, name]) => ({ id, name }));
-  }, [records]);
+  }, [staff, records]);
 
   const filtered = visibleRecords.filter((r) =>
     (!filterEquipment || r.equipmentId === filterEquipment) &&
@@ -625,16 +756,16 @@ function RecordsView({ user, records, equipment, categories }) {
 
 // ===================== 數據分析 =====================
 
-function AnalyticsView({ user, records, equipment, categories }) {
+function AnalyticsView({ user, records, equipment, categories, staff }) {
   const isAdmin = user.ROLE === "admin";
   const [filterUserId, setFilterUserId] = useState("");
 
-  // 人員清單：從全部紀錄彙整不重複的人員，供管理員切換檢視
+  // 人員清單：以人員名冊為主，並補上名冊中已刪除但仍有歷史紀錄的人員，供管理員切換檢視
   const staffList = useMemo(() => {
-    const m = new Map();
-    records.forEach((r) => m.set(r.userId, r.userName));
+    const m = new Map(staff.map((s) => [s.id, s.name]));
+    records.forEach((r) => { if (!m.has(r.userId)) m.set(r.userId, r.userName); });
     return Array.from(m, ([id, name]) => ({ id, name }));
-  }, [records]);
+  }, [staff, records]);
 
   // 一般人員固定只看自己的數據；管理員可切換「全部」或指定人員
   const scopedRecords = useMemo(() => {
@@ -744,6 +875,7 @@ function App() {
   const [categories, setCategories] = useState(INITIAL_CATEGORIES);
   const [equipment, setEquipment] = useState(INITIAL_EQUIPMENT);
   const [records, setRecords] = useState(INITIAL_RECORDS);
+  const [staff, setStaff] = useState(INITIAL_STAFF);
   // 讀取設備專屬 QR 碼深層連結參數（#eq=設備編號）
   const [scanEquipmentId, setScanEquipmentId] = useState(() => readEqParam());
 
@@ -772,6 +904,7 @@ function App() {
     { key: "scan", label: "QR掃描紀錄" },
     { key: "equipment", label: "設備管理" },
     ...(isAdmin ? [{ key: "category", label: "分類設定" }] : []),
+    ...(isAdmin ? [{ key: "staff", label: "人員名冊" }] : []),
     { key: "records", label: "紀錄查詢" },
     { key: "analytics", label: "數據分析" },
   ];
@@ -792,8 +925,13 @@ function App() {
           onDelete={(id) => setEquipment(equipment.filter((eq) => eq.id !== id))}
         />}
         {tab === "category" && isAdmin && <CategoryConfigView categories={categories} onAdd={(c) => setCategories([...categories, c])} onRemove={(id) => setCategories(categories.filter((c) => c.id !== id && c.parent !== id))} />}
-        {tab === "records" && <RecordsView user={user} records={records} equipment={equipment} categories={categories} />}
-        {tab === "analytics" && <AnalyticsView user={user} records={records} equipment={equipment} categories={categories} />}
+        {tab === "staff" && isAdmin && <StaffView staff={staff} records={records}
+          onAdd={(s) => setStaff([...staff, s])}
+          onUpdate={(id, changes) => setStaff(staff.map((s) => (s.id === id ? { ...s, ...changes } : s)))}
+          onDelete={(id) => setStaff(staff.filter((s) => s.id !== id))}
+        />}
+        {tab === "records" && <RecordsView user={user} records={records} equipment={equipment} categories={categories} staff={staff} />}
+        {tab === "analytics" && <AnalyticsView user={user} records={records} equipment={equipment} categories={categories} staff={staff} />}
       </div>
     </div>
   );
