@@ -682,10 +682,28 @@ function StaffView({ staff, records, onAdd, onUpdate, onDelete }) {
     }
   }
 
+  function handleApprove(s) {
+    onUpdate(s.id, { status: "active" });
+  }
+
+  function handleReject(s) {
+    if (window.confirm(`確定要駁回「${s.name}」（${s.id}）的帳號申請嗎？`)) {
+      onUpdate(s.id, { status: "rejected" });
+    }
+  }
+
+  const pendingCount = staff.filter((s) => s.status === "pending").length;
+
+  // 待審核的申請排在最前面，避免管理員漏看
+  const sortedStaff = [...staff].sort((a, b) => (a.status === "pending" ? -1 : 0) - (b.status === "pending" ? -1 : 0));
+
   return (
     <div className="px-4 sm:px-6 py-4">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">人員名冊</h2>
+        <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">
+          人員名冊
+          {pendingCount > 0 && <span className="ml-2 align-middle"><Badge color="amber">{pendingCount} 筆待審核</Badge></span>}
+        </h2>
         <button onClick={() => (showForm ? cancelForm() : startAdd())} className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700">
           {showForm ? "取消" : "＋ 新增人員"}
         </button>
@@ -704,6 +722,8 @@ function StaffView({ staff, records, onAdd, onUpdate, onDelete }) {
           <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="border border-slate-300 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100">
             <option value="active">在職</option>
             <option value="inactive">停用</option>
+            <option value="pending">待審核</option>
+            <option value="rejected">已駁回</option>
           </select>
           <div className="flex gap-2">
             <button type="submit" className="flex-1 bg-blue-600 text-white rounded px-3 py-1.5 text-sm">{editingId ? "儲存變更" : "儲存"}</button>
@@ -725,19 +745,31 @@ function StaffView({ staff, records, onAdd, onUpdate, onDelete }) {
             </tr>
           </thead>
           <tbody>
-            {staff.map((s) => (
-              <tr key={s.id} className="border-t border-slate-100 dark:border-slate-800">
+            {sortedStaff.map((s) => (
+              <tr key={s.id} className={`border-t border-slate-100 dark:border-slate-800 ${s.status === "pending" ? "bg-amber-50/60 dark:bg-amber-900/10" : ""}`}>
                 <td className="px-3 py-2 text-slate-500 dark:text-slate-400">{s.id}</td>
-                <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-100">{s.name}</td>
+                <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-100">
+                  {s.name}
+                  {s.selfRegistered && <span className="ml-1 text-[10px] text-slate-400 dark:text-slate-500">（自行申請）</span>}
+                </td>
                 <td className="px-3 py-2">
                   <Badge color={s.role === "admin" ? "amber" : "slate"}>{s.role === "admin" ? "管理員" : "維護人員"}</Badge>
                 </td>
                 <td className="px-3 py-2 text-slate-500 dark:text-slate-400">{s.department || "-"}</td>
                 <td className="px-3 py-2">
-                  <Badge color={s.status === "active" ? "green" : "red"}>{s.status === "active" ? "在職" : "停用"}</Badge>
+                  {s.status === "active" && <Badge color="green">在職</Badge>}
+                  {s.status === "inactive" && <Badge color="red">停用</Badge>}
+                  {s.status === "pending" && <Badge color="amber">待審核</Badge>}
+                  {s.status === "rejected" && <Badge color="red">已駁回</Badge>}
                 </td>
                 <td className="px-3 py-2">
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
+                    {s.status === "pending" ? (
+                      <>
+                        <button onClick={() => handleApprove(s)} className="text-xs bg-green-50 hover:bg-green-100 text-green-700 rounded px-2 py-1 dark:bg-green-900/40 dark:hover:bg-green-900/60 dark:text-green-300">✓ 核准</button>
+                        <button onClick={() => handleReject(s)} className="text-xs bg-red-50 hover:bg-red-100 text-red-600 rounded px-2 py-1 dark:bg-red-950/40 dark:hover:bg-red-900/60 dark:text-red-400">✕ 駁回</button>
+                      </>
+                    ) : null}
                     <button onClick={() => startEdit(s)} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded px-2 py-1 dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-slate-200">✏ 編輯</button>
                     <button onClick={() => handleDelete(s)} className="text-xs bg-red-50 hover:bg-red-100 text-red-600 rounded px-2 py-1 dark:bg-red-950/40 dark:hover:bg-red-900/60 dark:text-red-400">🗑 刪除</button>
                   </div>

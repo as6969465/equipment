@@ -9,6 +9,8 @@ const FME_ERROR_MESSAGES = {
   "200": "AD 認證錯誤",
   "998": "系統暫時無法使用，請稍後再試",
   "999": "系統發生錯誤，請聯絡管理員",
+  "PENDING": "帳號審核中，請等待管理員核准後再登入",
+  "REJECTED": "帳號申請未通過，請聯絡管理員",
 };
 
 // TODO: IT 工程師請在此串接正式後端登入 API（正式環境請移除下方 DEMO_USERS 示範帳號機制）
@@ -32,6 +34,45 @@ async function callCheckUserId(userId, password) {
 function demoLoginFallback(userId, password) {
   const user = DEMO_USERS.find((u) => u.USER_ID === userId && u.PSW === password);
   return user ? { code: "000", user } : { code: "100", user: null };
+}
+
+// firebase-init.js 以 type="module" 載入（瀏覽器會延後執行），本檔案為一般
+// script 會先執行，故 window.fb 可能尚未就緒，這裡改為輪詢等待。
+function waitForFb() {
+  return new Promise((resolve) => {
+    (function check() {
+      if (window.fb) resolve();
+      else setTimeout(check, 30);
+    })();
+  });
+}
+
+// 檢查是否為人員自行申請的帳號（存於 Firestore staff 集合，密碼交由 Firebase
+// Authentication 驗證，Firestore 只存審核狀態）。回傳 null 代表不是此類帳號，
+// 應繼續走示範帳號 / 正式 FME API 驗證流程。
+async function trySelfRegisteredLogin(userId, password) {
+  await waitForFb();
+  const { db, doc, getDoc, auth, signInWithEmailAndPassword } = window.fb;
+
+  const profileSnap = await getDoc(doc(db, "staff", userId));
+  if (!profileSnap.exists() || !profileSnap.data().selfRegistered) {
+    return null; // 不是自行申請的帳號
+  }
+  const profile = profileSnap.data();
+
+  try {
+    await signInWithEmailAndPassword(auth, window.accountToAuthEmail(userId), password);
+  } catch (err) {
+    return { code: "100", user: null }; // 帳號或密碼錯誤
+  }
+
+  if (profile.status === "pending") {
+    return { code: "PENDING", user: null };
+  }
+  if (profile.status === "rejected") {
+    return { code: "REJECTED", user: null };
+  }
+  return { code: "000", user: { USER_ID: userId, NAME: profile.name, ROLE: profile.role || "staff" } };
 }
 
 function showError(message) {
@@ -84,13 +125,26 @@ if (loginForm) {
       code = fallback.code;
       demoUser = fallback.user;
     } else {
+      // 先檢查是否為人員自行申請、待管理員審核的帳號
+      let selfRegResult = null;
       try {
-        code = await callCheckUserId(userId, password);
+        selfRegResult = await trySelfRegisteredLogin(userId, password);
       } catch (err) {
-        // 正式環境不應發生（僅本機原型測試時，因跨網域無法連線正式 API 才會走到這裡）
-        const fallback = demoLoginFallback(userId, password);
-        code = fallback.code;
-        demoUser = fallback.user;
+        selfRegResult = null;
+      }
+
+      if (selfRegResult) {
+        code = selfRegResult.code;
+        demoUser = selfRegResult.user;
+      } else {
+        try {
+          code = await callCheckUserId(userId, password);
+        } catch (err) {
+          // 正式環境不應發生（僅本機原型測試時，因跨網域無法連線正式 API 才會走到這裡）
+          const fallback = demoLoginFallback(userId, password);
+          code = fallback.code;
+          demoUser = fallback.user;
+        }
       }
     }
 
