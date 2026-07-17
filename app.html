@@ -945,7 +945,8 @@ function StatCard({ label, value, highlight }) {
 
 function App() {
   const [user, setUser] = useState(null);
-  const [tab, setTab] = useState("scan");
+  // 記住目前頁籤，重新整理頁面時停留在原本的頁籤（僅限本次瀏覽器分頁/工作階段）
+  const [tab, setTab] = useState(() => sessionStorage.getItem("emm_active_tab") || "scan");
   const [categories, setCategories] = usePersistentState("emm_categories", INITIAL_CATEGORIES);
   const [equipment, setEquipment] = usePersistentState("emm_equipment", INITIAL_EQUIPMENT);
   const [records, setRecords] = usePersistentState("emm_records", INITIAL_RECORDS);
@@ -977,9 +978,7 @@ function App() {
     }
   }, []);
 
-  if (!user) return null;
-
-  const isAdmin = user.ROLE === "admin";
+  const isAdmin = user?.ROLE === "admin";
   const tabs = [
     { key: "scan", label: "QR掃描紀錄" },
     { key: "equipment", label: "設備管理" },
@@ -989,8 +988,22 @@ function App() {
     { key: "analytics", label: "數據分析" },
   ];
 
+  // 還原的頁籤若不適用於目前身分（例如換成一般人員登入卻停留在管理員專屬頁籤），改回預設頁籤
+  useEffect(() => {
+    if (user && !tabs.some((t) => t.key === tab)) {
+      setTab("scan");
+    }
+  }, [isAdmin, user]);
+
+  useEffect(() => {
+    if (user) sessionStorage.setItem("emm_active_tab", tab);
+  }, [tab, user]);
+
+  if (!user) return null;
+
   function handleLogout() {
     sessionStorage.removeItem("emm_user");
+    sessionStorage.removeItem("emm_active_tab");
     window.location.href = "index.html";
   }
 
