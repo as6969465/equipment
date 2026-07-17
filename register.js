@@ -84,6 +84,9 @@ if (registerForm) {
         role: "staff", // 自行申請一律為一般維護人員，管理員權限僅能由現有管理員手動調整
         status: "pending",
         selfRegistered: true,
+        // 預設可查看頁籤，需與 app.html 的 DEFAULT_STAFF_PERMISSIONS 保持一致；
+        // 核准後管理員可在「人員名冊」調整
+        permissions: ["scan", "equipment", "records", "analytics"],
       });
 
       showSuccess("申請已送出，請等待管理員審核，核准後即可登入。");

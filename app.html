@@ -64,6 +64,20 @@ const INITIAL_STAFF = [
   { id: "reyi", name: "系統管理員", role: "admin", department: "數位賦能室", status: "active" },
 ];
 
+// 系統內所有頁籤：adminOnly 的頁籤永遠只有管理員能看，不受人員權限設定影響；
+// 其餘頁籤對一般人員而言，是否顯示由該人員的 permissions 清單決定。
+const ALL_TABS = [
+  { key: "scan", label: "QR掃描紀錄" },
+  { key: "equipment", label: "設備管理" },
+  { key: "category", label: "分類設定", adminOnly: true },
+  { key: "staff", label: "人員名冊", adminOnly: true },
+  { key: "records", label: "紀錄查詢" },
+  { key: "analytics", label: "數據分析" },
+];
+
+// 一般人員預設可見頁籤（新申請/新增人員時的初始值）
+const DEFAULT_STAFF_PERMISSIONS = ["scan", "equipment", "records", "analytics"];
+
 function minutesBetween(start, end) {
   if (!start || !end) return null;
   const diff = (new Date(end) - new Date(start)) / 60000;
@@ -634,7 +648,7 @@ function Date_now() { return Math.floor(performance.now() * 1000); }
 
 // ===================== 人員名冊 =====================
 
-const EMPTY_STAFF_FORM = { id: "", name: "", role: "staff", department: "", status: "active" };
+const EMPTY_STAFF_FORM = { id: "", name: "", role: "staff", department: "", status: "active", permissions: DEFAULT_STAFF_PERMISSIONS };
 
 function StaffView({ staff, records, onAdd, onUpdate, onDelete }) {
   const [form, setForm] = useState(EMPTY_STAFF_FORM);
@@ -649,7 +663,7 @@ function StaffView({ staff, records, onAdd, onUpdate, onDelete }) {
 
   function startEdit(s) {
     setEditingId(s.id);
-    setForm({ id: s.id, name: s.name, role: s.role, department: s.department, status: s.status });
+    setForm({ id: s.id, name: s.name, role: s.role, department: s.department, status: s.status, permissions: s.permissions || DEFAULT_STAFF_PERMISSIONS });
     setShowForm(true);
   }
 
@@ -657,6 +671,13 @@ function StaffView({ staff, records, onAdd, onUpdate, onDelete }) {
     setShowForm(false);
     setEditingId(null);
     setForm(EMPTY_STAFF_FORM);
+  }
+
+  function togglePermission(key) {
+    setForm((f) => ({
+      ...f,
+      permissions: f.permissions.includes(key) ? f.permissions.filter((k) => k !== key) : [...f.permissions, key],
+    }));
   }
 
   function submit(e) {
@@ -732,6 +753,20 @@ function StaffView({ staff, records, onAdd, onUpdate, onDelete }) {
             <button type="submit" className="flex-1 bg-blue-600 text-white rounded px-3 py-1.5 text-sm">{editingId ? "儲存變更" : "儲存"}</button>
             {editingId && <button type="button" onClick={cancelForm} className="flex-1 bg-slate-100 text-slate-600 rounded px-3 py-1.5 text-sm dark:bg-slate-700 dark:text-slate-300">取消</button>}
           </div>
+
+          {form.role === "staff" && (
+            <div className="col-span-2 sm:col-span-6 border-t border-slate-100 dark:border-slate-700 pt-2 mt-1">
+              <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">可查看頁籤（管理員專屬頁籤不受此設定影響）</div>
+              <div className="flex flex-wrap gap-3">
+                {ALL_TABS.filter((t) => !t.adminOnly).map((t) => (
+                  <label key={t.key} className="flex items-center gap-1.5 text-sm text-slate-700 dark:text-slate-200">
+                    <input type="checkbox" checked={form.permissions.includes(t.key)} onChange={() => togglePermission(t.key)} />
+                    {t.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
         </form>
       )}
 
@@ -743,6 +778,7 @@ function StaffView({ staff, records, onAdd, onUpdate, onDelete }) {
               <th className="text-left px-3 py-2">姓名</th>
               <th className="text-left px-3 py-2">角色</th>
               <th className="text-left px-3 py-2">負責部門/區域</th>
+              <th className="text-left px-3 py-2">可查看頁籤</th>
               <th className="text-left px-3 py-2">狀態</th>
               <th className="text-left px-3 py-2">操作</th>
             </tr>
@@ -759,6 +795,11 @@ function StaffView({ staff, records, onAdd, onUpdate, onDelete }) {
                   <Badge color={s.role === "admin" ? "amber" : "slate"}>{s.role === "admin" ? "管理員" : "維護人員"}</Badge>
                 </td>
                 <td className="px-3 py-2 text-slate-500 dark:text-slate-400">{s.department || "-"}</td>
+                <td className="px-3 py-2 text-slate-500 dark:text-slate-400">
+                  {s.role === "admin"
+                    ? <span className="text-xs">（管理員不受限）</span>
+                    : ALL_TABS.filter((t) => !t.adminOnly && (s.permissions || DEFAULT_STAFF_PERMISSIONS).includes(t.key)).map((t) => t.label).join("、") || <span className="text-xs">（無）</span>}
+                </td>
                 <td className="px-3 py-2">
                   {s.status === "active" && <Badge color="green">在職</Badge>}
                   {s.status === "inactive" && <Badge color="red">停用</Badge>}
@@ -780,7 +821,7 @@ function StaffView({ staff, records, onAdd, onUpdate, onDelete }) {
               </tr>
             ))}
             {staff.length === 0 && (
-              <tr><td colSpan="6" className="text-center text-slate-400 py-6 dark:text-slate-500">尚無人員資料</td></tr>
+              <tr><td colSpan="7" className="text-center text-slate-400 py-6 dark:text-slate-500">尚無人員資料</td></tr>
             )}
           </tbody>
         </table>
@@ -1068,14 +1109,11 @@ function App() {
   }, []);
 
   const isAdmin = user?.ROLE === "admin";
-  const tabs = [
-    { key: "scan", label: "QR掃描紀錄" },
-    { key: "equipment", label: "設備管理" },
-    ...(isAdmin ? [{ key: "category", label: "分類設定" }] : []),
-    ...(isAdmin ? [{ key: "staff", label: "人員名冊" }] : []),
-    { key: "records", label: "紀錄查詢" },
-    { key: "analytics", label: "數據分析" },
-  ];
+  // 一般人員可見頁籤由管理員在「人員名冊」設定；找不到對應人員資料
+  // （例如透過正式 FME 帳號登入，尚未建立人員名冊資料）時套用預設值
+  const myProfile = staff.find((s) => s.id === user?.USER_ID);
+  const myPermissions = myProfile?.permissions || DEFAULT_STAFF_PERMISSIONS;
+  const tabs = ALL_TABS.filter((t) => (t.adminOnly ? isAdmin : isAdmin || myPermissions.includes(t.key)));
 
   // 還原的頁籤若不適用於目前身分（例如換成一般人員登入卻停留在管理員專屬頁籤），改回預設頁籤
   useEffect(() => {
