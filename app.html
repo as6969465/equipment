@@ -26,7 +26,7 @@
 <div id="root"></div>
 
 <script id="app-source" type="text/plain">
-const { useState, useMemo, useEffect } = React;
+const { useState, useMemo, useEffect, useRef } = React;
 
 // ===================== Mock Data（示範資料，正式環境改接資料庫 / API） =====================
 
@@ -64,11 +64,18 @@ const INITIAL_STAFF = [
   { id: "reyi", name: "系統管理員", role: "admin", department: "數位賦能室", status: "active" },
 ];
 
+const INITIAL_SPARE_PARTS = [
+  { id: "SP-0001", itemNo: "1", warehouse: "A倉", equipmentType: "空調", itemName: "空調濾網", category: "耗材", usagePart: "濾網艙", componentName: "濾網 20x20", remark: "型號 FN-2020", vendor: "台灣濾材", safetyStock: 5, stock: 12, unitPrice: 350 },
+  { id: "SP-0002", itemNo: "2", warehouse: "B倉", equipmentType: "堆高機", itemName: "油壓油", category: "油品", usagePart: "油壓系統", componentName: "液壓油 ISO46", remark: "型號 HYD-46", vendor: "中油潤滑", safetyStock: 10, stock: 6, unitPrice: 850 },
+  { id: "SP-0003", itemNo: "3", warehouse: "A倉", equipmentType: "馬達", itemName: "軸承", category: "零件", usagePart: "傳動軸", componentName: "深溝滾珠軸承 6205", remark: "型號 6205-2RS", vendor: "日本NSK", safetyStock: 4, stock: 4, unitPrice: 220 },
+];
+
 // 系統內所有頁籤：adminOnly 的頁籤永遠只有管理員能看，不受人員權限設定影響；
 // 其餘頁籤對一般人員而言，是否顯示由該人員的 permissions 清單決定。
 const ALL_TABS = [
   { key: "scan", label: "QR掃描紀錄" },
   { key: "equipment", label: "設備管理" },
+  { key: "spareParts", label: "備品管理" },
   { key: "category", label: "分類設定", adminOnly: true },
   { key: "staff", label: "人員名冊", adminOnly: true },
   { key: "records", label: "紀錄查詢" },
@@ -76,7 +83,7 @@ const ALL_TABS = [
 ];
 
 // 一般人員預設可見頁籤（新申請/新增人員時的初始值）
-const DEFAULT_STAFF_PERMISSIONS = ["scan", "equipment", "records", "analytics"];
+const DEFAULT_STAFF_PERMISSIONS = ["scan", "equipment", "spareParts", "records", "analytics"];
 
 function minutesBetween(start, end) {
   if (!start || !end) return null;
@@ -256,7 +263,7 @@ function Badge({ children, color }) {
 
 // ===================== 掃描紀錄 =====================
 
-function ScanRecordView({ user, equipment, categories, onSubmit, initialEquipmentId, onConsumeInitial }) {
+function ScanRecordView({ user, equipment, categories, spareParts, staff, onSubmit, onUseParts, initialEquipmentId, onConsumeInitial }) {
   const majors = categories.filter((c) => c.parent === null);
   const [equipmentId, setEquipmentId] = useState("");
   const [majorId, setMajorId] = useState("");
@@ -269,6 +276,39 @@ function ScanRecordView({ user, equipment, categories, onSubmit, initialEquipmen
   const [errors, setErrors] = useState({});
   const [toast, setToast] = useState("");
 
+  // 更換料件（選填，連動備品庫存）
+  const [partsUsed, setPartsUsed] = useState([]);
+  const [pickedPartId, setPickedPartId] = useState("");
+  const [pickedPartQty, setPickedPartQty] = useState("1");
+
+  // 協同人員（選填）：系統內人員多選 + 外部人員自由輸入
+  const [participants, setParticipants] = useState([]);
+  const [externalParticipants, setExternalParticipants] = useState("");
+
+  function addPart() {
+    if (!pickedPartId) return;
+    const qty = Number(pickedPartQty) || 1;
+    const part = spareParts.find((p) => p.id === pickedPartId);
+    if (!part) return;
+    setPartsUsed((list) => {
+      const existing = list.find((p) => p.partId === pickedPartId);
+      if (existing) {
+        return list.map((p) => (p.partId === pickedPartId ? { ...p, qty: p.qty + qty } : p));
+      }
+      return [...list, { partId: part.id, partName: part.componentName, qty }];
+    });
+    setPickedPartId("");
+    setPickedPartQty("1");
+  }
+
+  function removePart(partId) {
+    setPartsUsed((list) => list.filter((p) => p.partId !== partId));
+  }
+
+  function toggleParticipant(staffId) {
+    setParticipants((list) => (list.includes(staffId) ? list.filter((id) => id !== staffId) : [...list, staffId]));
+  }
+
   const minors = categories.filter((c) => c.parent === majorId);
   const selectedEquipment = equipment.find((e) => e.id === equipmentId);
   const isCustomMinor = minors.find((m) => m.id === minorId)?.name === "其他人工手輸";
@@ -279,6 +319,9 @@ function ScanRecordView({ user, equipment, categories, onSubmit, initialEquipmen
     setScanned(true);
     setStartTime(nowDateTimeLocal()); // 掃描當下時間自動記錄為開始時間
     setEndTime("");
+    setPartsUsed([]);
+    setParticipants([]);
+    setExternalParticipants("");
   }
 
   function finishWork() {
@@ -309,6 +352,10 @@ function ScanRecordView({ user, equipment, categories, onSubmit, initialEquipmen
   async function handleSubmit(ev) {
     ev.preventDefault();
     if (!validate()) return;
+
+    const externalNames = externalParticipants.split(/[,，、]/).map((s) => s.trim()).filter(Boolean);
+    const participantNames = participants.map((id) => staff.find((s) => s.id === id)?.name || id).concat(externalNames);
+
     try {
       await onSubmit({
         id: "R-" + String(Math.floor(Math.random() * 9000) + 1000),
@@ -322,7 +369,13 @@ function ScanRecordView({ user, equipment, categories, onSubmit, initialEquipmen
         startTime,
         endTime,
         createdAt: nowDateTimeLocal(),
+        partsUsed,
+        participantIds: participants, // 系統內協同人員帳號（供各人員工時統計使用）
+        participantNames, // 系統內人員姓名 + 外部人員姓名（僅供顯示）
       });
+      if (partsUsed.length > 0) {
+        await onUseParts(partsUsed);
+      }
     } catch (err) {
       setErrors({ submit: "紀錄儲存失敗，請檢查網路連線後重試。" });
       return;
@@ -330,6 +383,7 @@ function ScanRecordView({ user, equipment, categories, onSubmit, initialEquipmen
     setToast("紀錄已成功儲存！");
     setEquipmentId(""); setMajorId(""); setMinorId(""); setCustomMinor("");
     setNote(""); setStartTime(""); setEndTime(""); setScanned(false);
+    setPartsUsed([]); setParticipants([]); setExternalParticipants("");
     setTimeout(() => setToast(""), 2500);
   }
 
@@ -421,6 +475,48 @@ function ScanRecordView({ user, equipment, categories, onSubmit, initialEquipmen
               <button type="button" onClick={finishWork} className="ml-2 text-slate-400 hover:text-blue-600 hover:underline dark:text-slate-500">重新記錄結束時間</button>
             </p>
           )}
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1 dark:text-slate-200">更換料件（選填）</label>
+            <div className="flex gap-2">
+              <select value={pickedPartId} onChange={(e) => setPickedPartId(e.target.value)}
+                className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100">
+                <option value="">選擇備品</option>
+                {spareParts.map((p) => <option key={p.id} value={p.id}>{p.componentName}（庫存 {p.stock}）</option>)}
+              </select>
+              <input type="number" min="1" value={pickedPartQty} onChange={(e) => setPickedPartQty(e.target.value)}
+                className="w-20 border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100" placeholder="數量" />
+              <button type="button" onClick={addPart} className="bg-slate-700 hover:bg-slate-800 text-white text-sm px-4 rounded-lg">加入</button>
+            </div>
+            {partsUsed.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {partsUsed.map((p) => (
+                  <li key={p.partId} className="flex items-center justify-between text-sm bg-slate-50 dark:bg-slate-700 rounded-lg px-3 py-1.5">
+                    <span className="text-slate-700 dark:text-slate-200">{p.partName} × {p.qty}</span>
+                    <button type="button" onClick={() => removePart(p.partId)} className="text-slate-400 hover:text-red-500 dark:text-slate-500">移除</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1 dark:text-slate-200">協同人員（選填）</label>
+            <div className="flex flex-wrap gap-3 mb-2">
+              {staff.filter((s) => s.id !== user.USER_ID && s.status === "active").map((s) => (
+                <label key={s.id} className="flex items-center gap-1.5 text-sm text-slate-700 dark:text-slate-200">
+                  <input type="checkbox" checked={participants.includes(s.id)} onChange={() => toggleParticipant(s.id)} />
+                  {s.name}
+                </label>
+              ))}
+              {staff.filter((s) => s.id !== user.USER_ID && s.status === "active").length === 0 && (
+                <span className="text-xs text-slate-400 dark:text-slate-500">目前沒有其他在職人員</span>
+              )}
+            </div>
+            <input value={externalParticipants} onChange={(e) => setExternalParticipants(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100"
+              placeholder="外部/廠商人員姓名，多人以逗號分隔（選填）" />
+          </div>
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1 dark:text-slate-200">備註</label>
@@ -595,6 +691,221 @@ function EquipmentView({ equipment, canEdit, onAdd, onUpdate, onDelete }) {
         {printTarget === "all"
           ? equipment.map((eq) => <QRLabel key={eq.id} equipment={eq} size={180} />)
           : printTarget ? <QRLabel equipment={printTarget} size={220} /> : null}
+      </div>
+    </div>
+  );
+}
+
+// ===================== 備品管理 =====================
+
+const EMPTY_SPAREPART_FORM = {
+  id: "", itemNo: "", warehouse: "", equipmentType: "", itemName: "", category: "",
+  usagePart: "", componentName: "", remark: "", vendor: "", safetyStock: "", stock: "", unitPrice: "",
+};
+
+const SPAREPART_FIELDS = [
+  { key: "itemNo", label: "項次" },
+  { key: "warehouse", label: "倉別" },
+  { key: "equipmentType", label: "設備別" },
+  { key: "itemName", label: "品項" },
+  { key: "category", label: "分類" },
+  { key: "usagePart", label: "使用部位" },
+  { key: "componentName", label: "零組件名稱" },
+  { key: "remark", label: "備註(型號)" },
+  { key: "vendor", label: "廠商" },
+  { key: "safetyStock", label: "安全庫存量" },
+  { key: "stock", label: "庫存" },
+  { key: "unitPrice", label: "單價" },
+];
+const SPAREPART_NUMBER_FIELDS = ["safetyStock", "stock", "unitPrice"];
+
+function SparePartsView({ spareParts, canEdit, onAdd, onUpdate, onDelete }) {
+  const [form, setForm] = useState(EMPTY_SPAREPART_FORM);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [search, setSearch] = useState("");
+  const fileInputRef = useRef(null);
+
+  function startAdd() {
+    setEditingId(null);
+    setForm(EMPTY_SPAREPART_FORM);
+    setShowForm(true);
+  }
+
+  function startEdit(p) {
+    setEditingId(p.id);
+    setForm({ ...EMPTY_SPAREPART_FORM, ...p });
+    setShowForm(true);
+  }
+
+  function cancelForm() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(EMPTY_SPAREPART_FORM);
+  }
+
+  function submit(e) {
+    e.preventDefault();
+    if (!form.itemName || !form.componentName) {
+      alert("請至少填寫「品項」與「零組件名稱」");
+      return;
+    }
+    const payload = { ...form };
+    SPAREPART_NUMBER_FIELDS.forEach((k) => { payload[k] = Number(payload[k]) || 0; });
+    if (editingId) {
+      onUpdate(editingId, payload);
+    } else {
+      payload.id = "SP-" + Date.now().toString(36).toUpperCase();
+      onAdd(payload);
+    }
+    cancelForm();
+  }
+
+  function handleDelete(p) {
+    if (window.confirm(`確定要刪除備品「${p.itemName}」（${p.componentName}）嗎？此動作無法復原。`)) {
+      onDelete(p.id);
+      if (editingId === p.id) cancelForm();
+    }
+  }
+
+  const filtered = spareParts.filter((p) => {
+    if (!search.trim()) return true;
+    const kw = search.trim().toLowerCase();
+    return [p.itemName, p.componentName, p.vendor, p.equipmentType, p.category, p.usagePart, p.warehouse]
+      .some((v) => (v || "").toLowerCase().includes(kw));
+  });
+
+  function exportSpareParts() {
+    const rows = spareParts.map((p) => {
+      const row = {};
+      SPAREPART_FIELDS.forEach((f) => { row[f.label] = p[f.key]; });
+      return row;
+    });
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, "備品清單");
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+    XLSX.writeFile(workbook, `備品清單_${stamp}.xlsx`);
+  }
+
+  function triggerImport() {
+    if (fileInputRef.current) fileInputRef.current.click();
+  }
+
+  async function handleImportFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      let created = 0;
+      let updated = 0;
+      for (const row of rows) {
+        const payload = { id: "" };
+        SPAREPART_FIELDS.forEach((f) => {
+          const raw = row[f.label];
+          payload[f.key] = SPAREPART_NUMBER_FIELDS.includes(f.key) ? Number(raw) || 0 : (raw != null ? String(raw) : "");
+        });
+        const existing = spareParts.find((p) => p.itemNo && p.itemNo === payload.itemNo);
+        if (existing) {
+          await onUpdate(existing.id, payload);
+          updated++;
+        } else {
+          payload.id = "SP-" + Date.now().toString(36).toUpperCase() + "-" + created;
+          await onAdd(payload);
+          created++;
+        }
+      }
+      alert(`匯入完成：新增 ${created} 筆、更新 ${updated} 筆（依「項次」比對是否為既有備品）`);
+    } catch (err) {
+      alert("匯入失敗，請確認檔案格式是否正確（" + err.message + "）");
+    } finally {
+      e.target.value = "";
+    }
+  }
+
+  return (
+    <div className="px-4 sm:px-6 py-4">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">備品管理</h2>
+        <div className="flex items-center gap-2 flex-wrap">
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="快速查詢：品項/零組件/廠商/設備別..."
+            className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm w-56 bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100" />
+          <button onClick={exportSpareParts} className="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg">📤 匯出</button>
+          {canEdit && (
+            <>
+              <button onClick={triggerImport} className="text-sm bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg">📥 匯入</button>
+              <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleImportFile} />
+              <button onClick={() => (showForm ? cancelForm() : startAdd())} className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700">
+                {showForm ? "取消" : "＋ 新增備品"}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {showForm && canEdit && (
+        <form onSubmit={submit} className="bg-white border border-slate-200 rounded-xl p-3 mb-3 grid grid-cols-2 sm:grid-cols-6 gap-2 dark:bg-slate-800 dark:border-slate-700">
+          <input placeholder="項次" value={form.itemNo} onChange={(e) => setForm({ ...form, itemNo: e.target.value })} className="border border-slate-300 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100" />
+          <input placeholder="倉別" value={form.warehouse} onChange={(e) => setForm({ ...form, warehouse: e.target.value })} className="border border-slate-300 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100" />
+          <input placeholder="設備別" value={form.equipmentType} onChange={(e) => setForm({ ...form, equipmentType: e.target.value })} className="border border-slate-300 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100" />
+          <input placeholder="品項" value={form.itemName} onChange={(e) => setForm({ ...form, itemName: e.target.value })} className="border border-slate-300 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100" />
+          <input placeholder="分類" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="border border-slate-300 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100" />
+          <input placeholder="使用部位" value={form.usagePart} onChange={(e) => setForm({ ...form, usagePart: e.target.value })} className="border border-slate-300 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100" />
+          <input placeholder="零組件名稱" value={form.componentName} onChange={(e) => setForm({ ...form, componentName: e.target.value })} className="border border-slate-300 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100" />
+          <input placeholder="備註(型號)" value={form.remark} onChange={(e) => setForm({ ...form, remark: e.target.value })} className="border border-slate-300 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100" />
+          <input placeholder="廠商" value={form.vendor} onChange={(e) => setForm({ ...form, vendor: e.target.value })} className="border border-slate-300 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100" />
+          <input type="number" placeholder="安全庫存量" value={form.safetyStock} onChange={(e) => setForm({ ...form, safetyStock: e.target.value })} className="border border-slate-300 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100" />
+          <input type="number" placeholder="庫存" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} className="border border-slate-300 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100" />
+          <input type="number" placeholder="單價" value={form.unitPrice} onChange={(e) => setForm({ ...form, unitPrice: e.target.value })} className="border border-slate-300 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100" />
+          <div className="col-span-2 sm:col-span-6 flex gap-2">
+            <button type="submit" className="flex-1 sm:flex-none sm:px-8 bg-blue-600 text-white rounded px-3 py-1.5 text-sm">{editingId ? "儲存變更" : "儲存"}</button>
+            <button type="button" onClick={cancelForm} className="flex-1 sm:flex-none sm:px-8 bg-slate-100 text-slate-600 rounded px-3 py-1.5 text-sm dark:bg-slate-700 dark:text-slate-300">取消</button>
+          </div>
+        </form>
+      )}
+
+      <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto dark:bg-slate-800 dark:border-slate-700">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-slate-500 text-xs dark:bg-slate-900 dark:text-slate-400">
+            <tr>
+              {SPAREPART_FIELDS.map((f) => <th key={f.key} className="text-left px-3 py-2 whitespace-nowrap">{f.label}</th>)}
+              <th className="text-left px-3 py-2">狀態</th>
+              {canEdit && <th className="text-left px-3 py-2">操作</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((p) => {
+              const low = Number(p.stock) < Number(p.safetyStock);
+              return (
+                <tr key={p.id} className="border-t border-slate-100 dark:border-slate-800">
+                  {SPAREPART_FIELDS.map((f) => (
+                    <td key={f.key} className={`px-3 py-2 whitespace-nowrap ${SPAREPART_NUMBER_FIELDS.includes(f.key) ? "tabular-nums" : ""} ${f.key === "componentName" ? "font-medium text-slate-800 dark:text-slate-100" : "text-slate-500 dark:text-slate-400"}`}>
+                      {p[f.key] || "-"}
+                    </td>
+                  ))}
+                  <td className="px-3 py-2">
+                    {low ? <Badge color="red">低於安全庫存</Badge> : <Badge color="green">庫存正常</Badge>}
+                  </td>
+                  {canEdit && (
+                    <td className="px-3 py-2">
+                      <div className="flex gap-2">
+                        <button onClick={() => startEdit(p)} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded px-2 py-1 dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-slate-200">✏ 編輯</button>
+                        <button onClick={() => handleDelete(p)} className="text-xs bg-red-50 hover:bg-red-100 text-red-600 rounded px-2 py-1 dark:bg-red-950/40 dark:hover:bg-red-900/60 dark:text-red-400">🗑 刪除</button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+            {filtered.length === 0 && (
+              <tr><td colSpan={SPAREPART_FIELDS.length + 2} className="text-center text-slate-400 py-6 dark:text-slate-500">{search ? "查無符合的備品" : "尚無備品資料"}</td></tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -837,6 +1148,8 @@ function RecordsView({ user, records, equipment, categories, staff }) {
   const [filterEquipment, setFilterEquipment] = useState("");
   const [filterMajor, setFilterMajor] = useState("");
   const [filterUser, setFilterUser] = useState("");
+  const [filterStartDate, setFilterStartDate] = useState("");
+  const [filterEndDate, setFilterEndDate] = useState("");
 
   const visibleRecords = records.filter((r) => (isAdmin ? true : r.userId === user.USER_ID));
 
@@ -850,7 +1163,9 @@ function RecordsView({ user, records, equipment, categories, staff }) {
   const filtered = visibleRecords.filter((r) =>
     (!filterEquipment || r.equipmentId === filterEquipment) &&
     (!filterMajor || r.majorId === filterMajor) &&
-    (!isAdmin || !filterUser || r.userId === filterUser)
+    (!isAdmin || !filterUser || r.userId === filterUser) &&
+    (!filterStartDate || (r.startTime && r.startTime.slice(0, 10) >= filterStartDate)) &&
+    (!filterEndDate || (r.startTime && r.startTime.slice(0, 10) <= filterEndDate))
   );
 
   function nameOf(list, id) { return list.find((x) => x.id === id)?.name || id; }
@@ -865,17 +1180,19 @@ function RecordsView({ user, records, equipment, categories, staff }) {
       "紀錄編號": r.id,
       "設備": nameOf(equipment, r.equipmentId),
       "人員": r.userName,
+      "協同人員": (r.participantNames || []).join("、"),
       "大分類": nameOf(categories, r.majorId),
       "小分類/項目": minorLabel(r),
       "開始時間": r.startTime ? r.startTime.replace("T", " ") : "",
       "結束時間": r.endTime ? r.endTime.replace("T", " ") : "",
       "耗時(分)": minutesBetween(r.startTime, r.endTime) ?? "",
+      "更換料件": (r.partsUsed || []).map((p) => `${p.partName} x${p.qty}`).join("、"),
       "備註": r.note || "",
     }));
     const sheet = XLSX.utils.json_to_sheet(rows);
     sheet["!cols"] = [
-      { wch: 10 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 14 },
-      { wch: 18 }, { wch: 18 }, { wch: 8 }, { wch: 24 },
+      { wch: 10 }, { wch: 16 }, { wch: 10 }, { wch: 16 }, { wch: 10 }, { wch: 14 },
+      { wch: 18 }, { wch: 18 }, { wch: 8 }, { wch: 24 }, { wch: 24 },
     ];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, sheet, "維護紀錄");
@@ -913,6 +1230,16 @@ function RecordsView({ user, records, equipment, categories, staff }) {
             {staffList.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         )}
+        <div className="flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400">
+          <input type="date" value={filterStartDate} onChange={(e) => setFilterStartDate(e.target.value)}
+            className="border border-slate-300 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100" />
+          <span>至</span>
+          <input type="date" value={filterEndDate} onChange={(e) => setFilterEndDate(e.target.value)}
+            className="border border-slate-300 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100" />
+          {(filterStartDate || filterEndDate) && (
+            <button type="button" onClick={() => { setFilterStartDate(""); setFilterEndDate(""); }} className="text-xs text-blue-600 hover:underline dark:text-blue-400">清除日期</button>
+          )}
+        </div>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto dark:bg-slate-800 dark:border-slate-700">
@@ -959,6 +1286,8 @@ function RecordsView({ user, records, equipment, categories, staff }) {
 function AnalyticsView({ user, records, equipment, categories, staff }) {
   const isAdmin = user.ROLE === "admin";
   const [filterUserId, setFilterUserId] = useState("");
+  const [filterStartDate, setFilterStartDate] = useState("");
+  const [filterEndDate, setFilterEndDate] = useState("");
 
   // 人員清單：以人員名冊為主，並補上名冊中已刪除但仍有歷史紀錄的人員，供管理員切換檢視
   const staffList = useMemo(() => {
@@ -967,11 +1296,20 @@ function AnalyticsView({ user, records, equipment, categories, staff }) {
     return Array.from(m, ([id, name]) => ({ id, name }));
   }, [staff, records]);
 
-  // 一般人員固定只看自己的數據；管理員可切換「全部」或指定人員
+  const dateFiltered = useMemo(() => records.filter((r) =>
+    (!filterStartDate || (r.startTime && r.startTime.slice(0, 10) >= filterStartDate)) &&
+    (!filterEndDate || (r.startTime && r.startTime.slice(0, 10) <= filterEndDate))
+  ), [records, filterStartDate, filterEndDate]);
+
+  // 一般人員固定只看自己的數據（含自己被列為協同人員的紀錄）；
+  // 管理員可切換「全部」或指定人員（指定人員時，同樣涵蓋該人員被列為協同人員的紀錄）
+  function involvesPerson(r, personId) {
+    return r.userId === personId || (r.participantIds || []).includes(personId);
+  }
   const scopedRecords = useMemo(() => {
-    if (!isAdmin) return records.filter((r) => r.userId === user.USER_ID);
-    return filterUserId ? records.filter((r) => r.userId === filterUserId) : records;
-  }, [records, isAdmin, filterUserId, user]);
+    if (!isAdmin) return dateFiltered.filter((r) => involvesPerson(r, user.USER_ID));
+    return filterUserId ? dateFiltered.filter((r) => involvesPerson(r, filterUserId)) : dateFiltered;
+  }, [dateFiltered, isAdmin, filterUserId, user]);
 
   const totalRecords = scopedRecords.length;
   const durations = scopedRecords.map((r) => minutesBetween(r.startTime, r.endTime)).filter((d) => d !== null);
@@ -991,6 +1329,32 @@ function AnalyticsView({ user, records, equipment, categories, staff }) {
   }, [scopedRecords]);
   const maxUserCount = Math.max(1, ...countsByUser.map((c) => c.count));
 
+  // 各人員在各大分類（巡檢/維修/保養...）分別花費的時間：
+  // 一筆紀錄若有多位協同人員，每位參與者都會被記入該紀錄的完整耗時（而非平均分攤）；
+  // 「全部人員」統計次數維持以紀錄數為準（見上方 countsByUser），不會因多人參與而膨脹。
+  const personTimeBreakdown = useMemo(() => {
+    const byPerson = new Map(); // personId -> { id, name, perMajor: { majorId: minutes }, total }
+    dateFiltered.forEach((r) => {
+      const duration = minutesBetween(r.startTime, r.endTime);
+      if (duration === null) return;
+      const peopleIds = new Set([r.userId, ...(r.participantIds || [])]);
+      peopleIds.forEach((pid) => {
+        const name = pid === r.userId ? r.userName : (staff.find((s) => s.id === pid)?.name || pid);
+        if (!byPerson.has(pid)) byPerson.set(pid, { id: pid, name, perMajor: {}, total: 0 });
+        const entry = byPerson.get(pid);
+        entry.perMajor[r.majorId] = (entry.perMajor[r.majorId] || 0) + duration;
+        entry.total += duration;
+      });
+    });
+    let rows = Array.from(byPerson.values());
+    if (!isAdmin) {
+      rows = rows.filter((row) => row.id === user.USER_ID);
+    } else if (filterUserId) {
+      rows = rows.filter((row) => row.id === filterUserId);
+    }
+    return rows.sort((a, b) => b.total - a.total);
+  }, [dateFiltered, staff, isAdmin, user, filterUserId]);
+
   return (
     <div className="px-4 sm:px-6 py-4">
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -1002,6 +1366,18 @@ function AnalyticsView({ user, records, equipment, categories, staff }) {
           </select>
         ) : (
           <Badge color="slate">僅顯示您本人的數據</Badge>
+        )}
+      </div>
+
+      <div className="flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 mb-4">
+        <span className="text-xs">日期篩選：</span>
+        <input type="date" value={filterStartDate} onChange={(e) => setFilterStartDate(e.target.value)}
+          className="border border-slate-300 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100" />
+        <span>至</span>
+        <input type="date" value={filterEndDate} onChange={(e) => setFilterEndDate(e.target.value)}
+          className="border border-slate-300 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100" />
+        {(filterStartDate || filterEndDate) && (
+          <button type="button" onClick={() => { setFilterStartDate(""); setFilterEndDate(""); }} className="text-xs text-blue-600 hover:underline dark:text-blue-400">清除日期</button>
         )}
       </div>
 
@@ -1036,6 +1412,32 @@ function AnalyticsView({ user, records, equipment, categories, staff }) {
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-xl p-4 mt-4 overflow-x-auto dark:bg-slate-800 dark:border-slate-700">
+        <h3 className="text-sm font-semibold text-slate-600 mb-3 dark:text-slate-300">各人員分類耗時統計（協同人員同樣列入完整耗時）</h3>
+        {personTimeBreakdown.length === 0 ? (
+          <p className="text-sm text-slate-400 dark:text-slate-500">目前無符合條件的紀錄</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="text-xs text-slate-500 dark:text-slate-400">
+              <tr>
+                <th className="text-left px-2 py-1.5">人員</th>
+                {majors.map((m) => <th key={m.id} className="text-right px-2 py-1.5">{m.name}(分)</th>)}
+                <th className="text-right px-2 py-1.5">總計(分)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {personTimeBreakdown.map((row) => (
+                <tr key={row.id} className="border-t border-slate-100 dark:border-slate-800">
+                  <td className="px-2 py-1.5 font-medium text-slate-800 dark:text-slate-100">{row.name}</td>
+                  {majors.map((m) => <td key={m.id} className="text-right px-2 py-1.5 tabular-nums text-slate-600 dark:text-slate-300">{row.perMajor[m.id] || 0}</td>)}
+                  <td className="text-right px-2 py-1.5 tabular-nums font-semibold text-slate-800 dark:text-slate-100">{row.total}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl p-4 mt-4 dark:bg-slate-800 dark:border-slate-700">
@@ -1077,10 +1479,12 @@ function App() {
   const equipmentFs = useFirestoreCollection("equipment", INITIAL_EQUIPMENT);
   const recordsFs = useFirestoreCollection("records", INITIAL_RECORDS);
   const staffFs = useFirestoreCollection("staff", INITIAL_STAFF);
+  const sparePartsFs = useFirestoreCollection("spareParts", INITIAL_SPARE_PARTS);
   const categories = categoriesFs.items;
   const equipment = equipmentFs.items;
   const records = recordsFs.items;
   const staff = staffFs.items;
+  const spareParts = sparePartsFs.items;
   // 讀取設備專屬 QR 碼深層連結參數（#eq=設備編號）
   const [scanEquipmentId, setScanEquipmentId] = useState(() => readEqParam());
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("emm_dark_mode") === "1");
@@ -1134,15 +1538,30 @@ function App() {
     window.location.href = "index.html";
   }
 
+  // 掃描紀錄送出後，依「更換料件」清單扣減對應備品庫存（下限為 0）
+  async function handleUseParts(partsUsed) {
+    for (const used of partsUsed) {
+      const part = spareParts.find((p) => p.id === used.partId);
+      if (part) {
+        await sparePartsFs.updateItem(part.id, { stock: Math.max(0, Number(part.stock) - Number(used.qty)) });
+      }
+    }
+  }
+
   return (
     <div>
       <TopNav user={user} tabs={tabs} active={tab} onChange={setTab} onLogout={handleLogout} darkMode={darkMode} onToggleDark={() => setDarkMode((d) => !d)} />
       <div className="py-4">
-        {tab === "scan" && <ScanRecordView user={user} equipment={equipment} categories={categories} onSubmit={recordsFs.addItem} initialEquipmentId={scanEquipmentId} onConsumeInitial={() => setScanEquipmentId("")} />}
+        {tab === "scan" && <ScanRecordView user={user} equipment={equipment} categories={categories} spareParts={spareParts} staff={staff} onSubmit={recordsFs.addItem} onUseParts={handleUseParts} initialEquipmentId={scanEquipmentId} onConsumeInitial={() => setScanEquipmentId("")} />}
         {tab === "equipment" && <EquipmentView equipment={equipment} canEdit={isAdmin}
           onAdd={equipmentFs.addItem}
           onUpdate={equipmentFs.updateItem}
           onDelete={equipmentFs.removeItem}
+        />}
+        {tab === "spareParts" && <SparePartsView spareParts={spareParts} canEdit={isAdmin}
+          onAdd={sparePartsFs.addItem}
+          onUpdate={sparePartsFs.updateItem}
+          onDelete={sparePartsFs.removeItem}
         />}
         {tab === "category" && isAdmin && <CategoryConfigView categories={categories} onAdd={categoriesFs.addItem}
           onRemove={(id) => categories.filter((c) => c.id === id || c.parent === id).forEach((c) => categoriesFs.removeItem(c.id))}
