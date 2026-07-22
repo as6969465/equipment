@@ -328,13 +328,15 @@ function ScanRecordView({ user, equipment, categories, spareParts, staff, onSubm
     setEndTime(nowDateTimeLocal()); // 點擊「結束作業」按鍵記錄當下時間
   }
 
-  // 由設備專屬 QR 碼深層連結進入時（?eq=設備編號），自動帶入該設備
+  // 由設備專屬 QR 碼深層連結進入時（#eq=設備編號），自動帶入該設備。
+  // 設備清單是從 Firestore 非同步載入的，一開始是空陣列，故 equipment 也需列入依賴，
+  // 否則清單載入完成前 initialEquipmentId 已判斷過一次就不會再重新檢查。
   useEffect(() => {
     if (initialEquipmentId && equipment.some((e) => e.id === initialEquipmentId)) {
       simulateScan(initialEquipmentId);
       onConsumeInitial && onConsumeInitial();
     }
-  }, [initialEquipmentId]);
+  }, [initialEquipmentId, equipment]);
 
   function validate() {
     const e = {};
