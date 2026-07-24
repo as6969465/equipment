@@ -663,6 +663,7 @@ function ScheduleView({ user, schedules, equipment, staff, isAdmin, onAdd, onUpd
   const [editItem, setEditItem] = useState(null);
   const [form, setForm] = useState(EMPTY_SCHEDULE);
   const [saving, setSaving] = useState(false);
+  const [popup, setPopup] = useState(null); // { date, type } | null
 
   const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
 
@@ -805,7 +806,8 @@ function ScheduleView({ user, schedules, equipment, staff, isAdmin, onAdd, onUpd
                     </div>
                     <div className="flex flex-wrap gap-0.5">
                       {chips.map(c => (
-                        <span key={c.key} className={`text-[10px] px-1 py-0.5 rounded border font-semibold leading-none ${isSelected ? "bg-white/20 text-white border-white/30" : c.chip}`}>
+                        <span key={c.key} onClick={(e) => { e.stopPropagation(); setPopup({ date: ds, type: c.key }); }}
+                          className={`text-[10px] px-1 py-0.5 rounded border font-semibold leading-none cursor-pointer hover:opacity-75 ${isSelected ? "bg-white/20 text-white border-white/30" : c.chip}`}>
                           {c.short}{c.n}
                         </span>
                       ))}
@@ -880,6 +882,58 @@ function ScheduleView({ user, schedules, equipment, staff, isAdmin, onAdd, onUpd
           </div>
         </div>
       </div>
+
+      {/* 日期事件彈窗 */}
+      {popup && (() => {
+        const ti = typeInfo(popup.type);
+        const items = schedulesOn(popup.date).filter(s => s.type === popup.type);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 dark:bg-black/60" onClick={() => setPopup(null)}>
+            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs px-2 py-0.5 rounded border font-semibold ${ti.chip}`}>{ti.key}</span>
+                  <span className="font-bold text-slate-800 dark:text-slate-100">{popup.date}</span>
+                </div>
+                <button onClick={() => setPopup(null)} className="text-slate-400 hover:text-slate-600 dark:text-slate-500 text-xl leading-none">×</button>
+              </div>
+              <ul className="space-y-2.5">
+                {items.map(s => {
+                  const eq = equipment.find(e => e.id === s.equipmentId);
+                  const assignee = staff.find(st => st.id === s.assigneeId);
+                  return (
+                    <li key={s.id} className="border border-slate-100 dark:border-slate-700 rounded-xl p-3 space-y-1">
+                      <div className="font-medium text-slate-800 dark:text-slate-100 text-sm">
+                        {s.type === "事件" ? (s.title || "（未命名事件）") : (eq?.name || s.equipmentId)}
+                      </div>
+                      {s.type !== "事件" && eq && (
+                        <div className="text-xs text-slate-400 dark:text-slate-500">{eq.floor} {eq.zone} · {eq.qr}</div>
+                      )}
+                      {s.type !== "事件" && s.title && (
+                        <div className="text-xs text-slate-500 dark:text-slate-400">說明：{s.title}</div>
+                      )}
+                      {assignee && (
+                        <div className="text-xs text-slate-500 dark:text-slate-400">負責人：{assignee.name}</div>
+                      )}
+                      {s.note && (
+                        <div className="text-xs text-slate-400 dark:text-slate-500">備註：{s.note}</div>
+                      )}
+                      {isAdmin && (
+                        <div className="flex gap-3 pt-1">
+                          <button onClick={() => { setPopup(null); selectDay(Number(popup.date.slice(8))); openEdit(s); }}
+                            className="text-xs text-blue-500 hover:underline">編輯</button>
+                          <button onClick={() => { handleDelete(s.id); setPopup(null); }}
+                            className="text-xs text-red-400 hover:underline">刪除</button>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
