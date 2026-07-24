@@ -893,7 +893,7 @@ function ScheduleView({ user, schedules, equipment, staff, records, isAdmin, onA
             // 以「有 endTime 的已完成作業紀錄」中最新的 startTime 為準；
             // 無紀錄時退回設備設定的 lastMaintenance
             const doneRecords = (records || [])
-              .filter(r => r.equipmentId === eq.id && r.endTime && r.startTime)
+              .filter(r => r.equipmentId === eq.id && r.endTime && r.startTime && r.majorLabel === "保養")
               .sort((a, b) => (b.startTime || "").localeCompare(a.startTime || ""));
             const latestRecord = doneRecords[0];
             const lastDate = latestRecord ? latestRecord.startTime.slice(0, 10) : (eq.lastMaintenance || "");
