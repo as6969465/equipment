@@ -366,15 +366,16 @@ function ScanRecordView({ user, equipment, categories, spareParts, staff, record
         userId: user.USER_ID,
         userName: user.NAME,
         majorId,
+        majorLabel: majors.find(m => m.id === majorId)?.name || "",
         minorId,
-        minorLabel: isCustomMinor ? customMinor.trim() : null, // Firestore 不允許 undefined，用 null 代表無自訂項目
+        minorLabel: isCustomMinor ? customMinor.trim() : null,
         note,
         startTime,
         endTime,
         createdAt: nowDateTimeLocal(),
         partsUsed,
-        participantIds: participants, // 系統內協同人員帳號（供各人員工時統計使用）
-        participantNames, // 系統內人員姓名 + 外部人員姓名（僅供顯示）
+        participantIds: participants,
+        participantNames,
       });
       if (partsUsed.length > 0) {
         await onUseParts(partsUsed);
@@ -889,15 +890,23 @@ function ScheduleView({ user, schedules, equipment, staff, records, isAdmin, onA
         const warnings = equipment
           .filter(eq => eq.cycleDays && eq.lastMaintenance)
           .map(eq => {
-            // 優先用實際作業紀錄中最新的「保養」類紀錄日期
-            const maintRecords = (records || []).filter(r => r.equipmentId === eq.id && r.majorLabel === "保養" && r.startTime);
-            const latestRecord = maintRecords.sort((a, b) => (b.startTime || "").localeCompare(a.startTime || ""))[0];
-            const lastDate = latestRecord ? latestRecord.startTime.slice(0, 10) : eq.lastMaintenance;
+            // 以「有 endTime 的已完成作業紀錄」中最新的 startTime 為準；
+            // 無紀錄時退回設備設定的 lastMaintenance
+            const doneRecords = (records || [])
+              .filter(r => r.equipmentId === eq.id && r.endTime && r.startTime)
+              .sort((a, b) => (b.startTime || "").localeCompare(a.startTime || ""));
+            const latestRecord = doneRecords[0];
+            const lastDate = latestRecord ? latestRecord.startTime.slice(0, 10) : (eq.lastMaintenance || "");
+            const lastSource = latestRecord
+              ? `${latestRecord.majorLabel || "作業"} · ${latestRecord.userName || latestRecord.userId}`
+              : "設備預設值";
+            if (!lastDate) return null;
             const dueMs = new Date(lastDate).getTime() + Number(eq.cycleDays) * 86400000;
             const daysLeft = Math.round((dueMs - todayMs) / 86400000);
             const dueDate = new Date(dueMs).toISOString().slice(0, 10);
-            return { eq, lastDate, dueDate, daysLeft };
+            return { eq, lastDate, lastSource, dueDate, daysLeft };
           })
+          .filter(Boolean)
           .sort((a, b) => a.daysLeft - b.daysLeft);
 
         if (warnings.length === 0) return null;
@@ -927,7 +936,8 @@ function ScheduleView({ user, schedules, equipment, staff, records, isAdmin, onA
                     <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400">設備</th>
                     <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400">位置</th>
                     <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400">週期</th>
-                    <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400">上次保養</th>
+                    <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400">上次作業</th>
+                    <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400">來源</th>
                     <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400">到期日</th>
                     <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400">狀態</th>
                   </tr>
@@ -941,6 +951,7 @@ function ScheduleView({ user, schedules, equipment, staff, records, isAdmin, onA
                         <td className="px-3 py-2.5 text-slate-500 dark:text-slate-400 text-xs">{eq.floor} {eq.zone}</td>
                         <td className="px-3 py-2.5 text-slate-500 dark:text-slate-400 text-xs">{eq.cycleDays} 天</td>
                         <td className="px-3 py-2.5 text-slate-500 dark:text-slate-400 text-xs">{lastDate}</td>
+                        <td className="px-3 py-2.5 text-slate-400 dark:text-slate-500 text-xs">{lastSource}</td>
                         <td className="px-3 py-2.5 text-slate-500 dark:text-slate-400 text-xs">{dueDate}</td>
                         <td className="px-3 py-2.5">
                           <span className={`text-xs px-2 py-0.5 rounded-full border font-semibold ${b.cls}`}>{b.label}</span>
@@ -2064,6 +2075,18 @@ function App() {
     window.location.href = "index.html";
   }
 
+  // 送出掃描紀錄後：同步更新設備的 lastMaintenance（取 startTime 日期，只往後更新）
+  async function handleRecordSubmit(recordData) {
+    await recordsFs.addItem(recordData);
+    if (recordData.equipmentId && recordData.startTime) {
+      const newDate = recordData.startTime.slice(0, 10);
+      const eq = equipment.find((e) => e.id === recordData.equipmentId);
+      if (eq && (!eq.lastMaintenance || newDate >= eq.lastMaintenance)) {
+        await equipmentFs.updateItem(recordData.equipmentId, { lastMaintenance: newDate });
+      }
+    }
+  }
+
   // 掃描紀錄送出後，依「更換料件」清單扣減對應備品庫存（下限為 0）
   async function handleUseParts(partsUsed) {
     for (const used of partsUsed) {
@@ -2078,7 +2101,7 @@ function App() {
     <div>
       <TopNav user={user} tabs={tabs} active={tab} onChange={setTab} onLogout={handleLogout} darkMode={darkMode} onToggleDark={() => setDarkMode((d) => !d)} />
       <div className="py-4">
-        {tab === "scan" && <ScanRecordView user={user} equipment={equipment} categories={categories} spareParts={spareParts} staff={staff} records={records} onSubmit={recordsFs.addItem} onUseParts={handleUseParts} initialEquipmentId={scanEquipmentId} onConsumeInitial={() => setScanEquipmentId("")} />}
+        {tab === "scan" && <ScanRecordView user={user} equipment={equipment} categories={categories} spareParts={spareParts} staff={staff} records={records} onSubmit={handleRecordSubmit} onUseParts={handleUseParts} initialEquipmentId={scanEquipmentId} onConsumeInitial={() => setScanEquipmentId("")} />}
         {tab === "equipment" && <EquipmentView equipment={equipment} canEdit={isAdmin}
           onAdd={equipmentFs.addItem}
           onUpdate={equipmentFs.updateItem}
