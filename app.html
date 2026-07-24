@@ -295,7 +295,7 @@ function ScanRecordView({ user, equipment, categories, spareParts, staff, onSubm
       if (existing) {
         return list.map((p) => (p.partId === pickedPartId ? { ...p, qty: p.qty + qty } : p));
       }
-      return [...list, { partId: part.id, partName: part.componentName, qty }];
+      return [...list, { partId: part.id, partName: part.componentName, partRemark: part.remark || "", qty }];
     });
     setPickedPartId("");
     setPickedPartQty("1");
@@ -484,7 +484,7 @@ function ScanRecordView({ user, equipment, categories, spareParts, staff, onSubm
               <select value={pickedPartId} onChange={(e) => setPickedPartId(e.target.value)}
                 className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100">
                 <option value="">選擇備品</option>
-                {spareParts.map((p) => <option key={p.id} value={p.id}>{p.componentName}（庫存 {p.stock}）</option>)}
+                {spareParts.map((p) => <option key={p.id} value={p.id}>{p.componentName}{p.remark ? `（${p.remark}）` : ""}（庫存 {p.stock}）</option>)}
               </select>
               <input type="number" min="1" value={pickedPartQty} onChange={(e) => setPickedPartQty(e.target.value)}
                 className="w-20 border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100" placeholder="數量" />
@@ -494,7 +494,7 @@ function ScanRecordView({ user, equipment, categories, spareParts, staff, onSubm
               <ul className="mt-2 space-y-1">
                 {partsUsed.map((p) => (
                   <li key={p.partId} className="flex items-center justify-between text-sm bg-slate-50 dark:bg-slate-700 rounded-lg px-3 py-1.5">
-                    <span className="text-slate-700 dark:text-slate-200">{p.partName} × {p.qty}</span>
+                    <span className="text-slate-700 dark:text-slate-200">{p.partName}{p.partRemark ? `（${p.partRemark}）` : ""} × {p.qty}</span>
                     <button type="button" onClick={() => removePart(p.partId)} className="text-slate-400 hover:text-red-500 dark:text-slate-500">移除</button>
                   </li>
                 ))}
@@ -1188,7 +1188,7 @@ function RecordsView({ user, records, equipment, categories, staff }) {
       "開始時間": r.startTime ? r.startTime.replace("T", " ") : "",
       "結束時間": r.endTime ? r.endTime.replace("T", " ") : "",
       "耗時(分)": minutesBetween(r.startTime, r.endTime) ?? "",
-      "更換料件": (r.partsUsed || []).map((p) => `${p.partName} x${p.qty}`).join("、"),
+      "更換料件": (r.partsUsed || []).map((p) => `${p.partName}${p.partRemark ? `（${p.partRemark}）` : ""} x${p.qty}`).join("、"),
       "備註": r.note || "",
     }));
     const sheet = XLSX.utils.json_to_sheet(rows);
