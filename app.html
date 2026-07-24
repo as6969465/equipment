@@ -943,7 +943,7 @@ function ScheduleView({ user, schedules, equipment, staff, records, isAdmin, onA
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                  {warnings.map(({ eq, lastDate, dueDate, daysLeft }) => {
+                  {warnings.map(({ eq, lastDate, lastSource, dueDate, daysLeft }) => {
                     const b = badge(daysLeft);
                     return (
                       <tr key={eq.id} className={`${daysLeft < 0 ? "bg-red-50/60 dark:bg-red-950/20" : daysLeft <= 7 ? "bg-orange-50/60 dark:bg-orange-950/20" : ""}`}>
