@@ -76,6 +76,7 @@ const ALL_TABS = [
   { key: "scan", label: "QR掃描紀錄" },
   { key: "equipment", label: "設備管理" },
   { key: "spareParts", label: "備品管理" },
+  { key: "schedule", label: "保養排程" },
   { key: "category", label: "分類設定", adminOnly: true },
   { key: "staff", label: "人員名冊", adminOnly: true },
   { key: "records", label: "紀錄查詢" },
@@ -83,7 +84,7 @@ const ALL_TABS = [
 ];
 
 // 一般人員預設可見頁籤（新申請/新增人員時的初始值）
-const DEFAULT_STAFF_PERMISSIONS = ["scan", "equipment", "spareParts", "records", "analytics"];
+const DEFAULT_STAFF_PERMISSIONS = ["scan", "equipment", "spareParts", "schedule", "records", "analytics"];
 
 function minutesBetween(start, end) {
   if (!start || !end) return null;
@@ -574,6 +575,272 @@ function ScanRecordView({ user, equipment, categories, spareParts, staff, record
             </ul>
           )}
         </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===================== 保養排程 =====================
+
+const SCHEDULE_TYPES = [
+  { key: "巡檢", color: "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:border-blue-800" },
+  { key: "保養", color: "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/50 dark:text-emerald-300 dark:border-emerald-800" },
+  { key: "維修", color: "bg-red-100 text-red-700 border-red-200 dark:bg-red-900/50 dark:text-red-300 dark:border-red-800" },
+  { key: "其他", color: "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600" },
+];
+
+const EMPTY_SCHEDULE = { equipmentId: "", type: "保養", title: "", assigneeId: "", note: "", date: "" };
+
+function ScheduleView({ user, schedules, equipment, staff, isAdmin, onAdd, onUpdate, onDelete }) {
+  const today = new Date();
+  const [viewYear, setViewYear] = useState(today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(today.getMonth()); // 0-based
+  const [modal, setModal] = useState(null); // null | { mode:"add"|"edit"|"view", date, item }
+  const [form, setForm] = useState(EMPTY_SCHEDULE);
+  const [saving, setSaving] = useState(false);
+  const [filterType, setFilterType] = useState("");
+
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+
+  // 月曆格子
+  const firstDay = new Date(viewYear, viewMonth, 1);
+  const lastDay = new Date(viewYear, viewMonth + 1, 0);
+  const startDow = firstDay.getDay(); // 0=日
+  const totalDays = lastDay.getDate();
+  // 補齊前置空格（以週日為第一欄）
+  const cells = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let d = 1; d <= totalDays; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  function dateStr(d) {
+    return `${viewYear}-${String(viewMonth+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+  }
+
+  function schedulesOnDay(d) {
+    const ds = dateStr(d);
+    return schedules.filter((s) => s.date === ds && (!filterType || s.type === filterType));
+  }
+
+  function openAdd(d) {
+    setForm({ ...EMPTY_SCHEDULE, date: dateStr(d) });
+    setModal({ mode: "add" });
+  }
+
+  function openView(item) {
+    setModal({ mode: "view", item });
+  }
+
+  function openEdit(item) {
+    setForm({ equipmentId: item.equipmentId || "", type: item.type || "保養", title: item.title || "", assigneeId: item.assigneeId || "", note: item.note || "", date: item.date || "" });
+    setModal({ mode: "edit", item });
+  }
+
+  function typeColor(type) {
+    return (SCHEDULE_TYPES.find((t) => t.key === type) || SCHEDULE_TYPES[3]).color;
+  }
+
+  async function handleSave() {
+    if (!form.date || !form.equipmentId || !form.type) return;
+    setSaving(true);
+    try {
+      if (modal.mode === "add") {
+        const id = "SC-" + Date.now().toString(36).toUpperCase();
+        await onAdd({ id, ...form, createdBy: user.USER_ID, createdAt: new Date().toISOString() });
+      } else {
+        await onUpdate(modal.item.id, { ...form });
+      }
+      setModal(null);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(id) {
+    if (!confirm("確定刪除此排程？")) return;
+    await onDelete(id);
+    setModal(null);
+  }
+
+  function prevMonth() {
+    if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); }
+    else setViewMonth(m => m - 1);
+  }
+  function nextMonth() {
+    if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); }
+    else setViewMonth(m => m + 1);
+  }
+
+  const DOW = ["日","一","二","三","四","五","六"];
+  const MONTH_NAMES = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
+
+  // 本月所有排程（供列表用）
+  const monthPrefix = `${viewYear}-${String(viewMonth+1).padStart(2,"0")}`;
+  const monthSchedules = schedules.filter((s) => s.date && s.date.startsWith(monthPrefix) && (!filterType || s.type === filterType)).sort((a,b) => a.date.localeCompare(b.date));
+
+  return (
+    <div className="max-w-6xl px-4 sm:px-6 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">保養排程</h2>
+        <div className="flex items-center gap-2 flex-wrap">
+          {SCHEDULE_TYPES.map((t) => (
+            <button key={t.key} onClick={() => setFilterType(filterType === t.key ? "" : t.key)}
+              className={`text-xs px-2.5 py-1 rounded-full border font-medium transition-opacity ${t.color} ${filterType && filterType !== t.key ? "opacity-40" : ""}`}>
+              {t.key}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 月份導覽 */}
+      <div className="flex items-center justify-between mb-3">
+        <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-lg">‹</button>
+        <span className="text-base font-semibold text-slate-800 dark:text-slate-100">{viewYear} 年 {MONTH_NAMES[viewMonth]}</span>
+        <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-lg">›</button>
+      </div>
+
+      {/* 月曆 */}
+      <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden mb-4">
+        <div className="grid grid-cols-7 border-b border-slate-200 dark:border-slate-700">
+          {DOW.map((d, i) => (
+            <div key={d} className={`text-center text-xs font-semibold py-2 ${i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-slate-500 dark:text-slate-400"}`}>{d}</div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7">
+          {cells.map((d, idx) => {
+            if (!d) return <div key={idx} className="border-r border-b border-slate-100 dark:border-slate-700/50 min-h-[70px] sm:min-h-[90px] bg-slate-50/50 dark:bg-slate-800/30" />;
+            const ds = dateStr(d);
+            const isToday = ds === todayStr;
+            const isPast = ds < todayStr;
+            const daySchedules = schedulesOnDay(d);
+            return (
+              <div key={idx} onClick={() => openAdd(d)}
+                className={`border-r border-b border-slate-100 dark:border-slate-700/50 min-h-[70px] sm:min-h-[90px] p-1 cursor-pointer transition-colors
+                  ${isToday ? "bg-blue-50 dark:bg-blue-950/30" : isPast ? "bg-slate-50 dark:bg-slate-800/20" : "bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/30"}`}>
+                <div className={`text-xs font-medium mb-1 ${isToday ? "text-blue-600 dark:text-blue-400 font-bold" : isPast ? "text-slate-400 dark:text-slate-500" : "text-slate-600 dark:text-slate-300"} ${idx % 7 === 0 ? "text-red-500 dark:text-red-400" : idx % 7 === 6 ? "text-blue-500 dark:text-blue-400" : ""}`}>
+                  {isToday ? <span className="inline-flex items-center justify-center w-5 h-5 bg-blue-600 text-white rounded-full text-xs">{d}</span> : d}
+                </div>
+                <div className="space-y-0.5">
+                  {daySchedules.slice(0, 3).map((s) => (
+                    <div key={s.id} onClick={(e) => { e.stopPropagation(); openView(s); }}
+                      className={`text-[10px] sm:text-xs px-1 py-0.5 rounded border truncate cursor-pointer hover:opacity-80 ${typeColor(s.type)}`}>
+                      <span className="font-medium">[{s.type}]</span> {(equipment.find(e=>e.id===s.equipmentId)||{}).name || s.equipmentId}
+                    </div>
+                  ))}
+                  {daySchedules.length > 3 && (
+                    <div className="text-[10px] text-slate-400 dark:text-slate-500 px-1">+{daySchedules.length - 3} 更多</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 本月排程列表 */}
+      {monthSchedules.length > 0 && (
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+            <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">本月排程清單</span>
+            <span className="ml-2 text-xs text-slate-400">共 {monthSchedules.length} 筆</span>
+          </div>
+          <ul className="divide-y divide-slate-100 dark:divide-slate-700">
+            {monthSchedules.map((s) => {
+              const eq = equipment.find(e=>e.id===s.equipmentId);
+              const assignee = staff.find(st=>st.id===s.assigneeId);
+              return (
+                <li key={s.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-700/30 cursor-pointer" onClick={() => openView(s)}>
+                  <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full border font-medium ${typeColor(s.type)}`}>{s.type}</span>
+                  <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0 w-16">{s.date.slice(5)}</span>
+                  <span className="text-sm text-slate-700 dark:text-slate-200 font-medium truncate">{eq?.name || s.equipmentId}</span>
+                  {s.title && <span className="text-xs text-slate-500 dark:text-slate-400 truncate">— {s.title}</span>}
+                  {assignee && <span className="ml-auto shrink-0 text-xs text-slate-400 dark:text-slate-500">{assignee.name}</span>}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {/* Modal */}
+      {modal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 dark:bg-black/60" onClick={() => setModal(null)}>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
+            {modal.mode === "view" ? (
+              <>
+                <div className="flex items-center justify-between mb-4">
+                  <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${typeColor(modal.item.type)}`}>{modal.item.type}</span>
+                  <div className="flex gap-2">
+                    {isAdmin && <button onClick={() => openEdit(modal.item)} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">編輯</button>}
+                    {isAdmin && <button onClick={() => handleDelete(modal.item.id)} className="text-xs text-red-500 hover:underline">刪除</button>}
+                    <button onClick={() => setModal(null)} className="text-slate-400 hover:text-slate-600 dark:text-slate-500 text-lg leading-none">×</button>
+                  </div>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div><span className="text-slate-500 dark:text-slate-400">日期：</span><span className="font-medium text-slate-700 dark:text-slate-200">{modal.item.date}</span></div>
+                  <div><span className="text-slate-500 dark:text-slate-400">設備：</span><span className="font-medium text-slate-700 dark:text-slate-200">{(equipment.find(e=>e.id===modal.item.equipmentId)||{}).name || modal.item.equipmentId}</span></div>
+                  {modal.item.title && <div><span className="text-slate-500 dark:text-slate-400">說明：</span><span className="text-slate-700 dark:text-slate-200">{modal.item.title}</span></div>}
+                  {modal.item.assigneeId && <div><span className="text-slate-500 dark:text-slate-400">負責人：</span><span className="text-slate-700 dark:text-slate-200">{(staff.find(s=>s.id===modal.item.assigneeId)||{}).name || modal.item.assigneeId}</span></div>}
+                  {modal.item.note && <div><span className="text-slate-500 dark:text-slate-400">備註：</span><span className="text-slate-700 dark:text-slate-200">{modal.item.note}</span></div>}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-semibold text-slate-800 dark:text-slate-100">{modal.mode === "add" ? "新增排程" : "編輯排程"}</h3>
+                  <button onClick={() => setModal(null)} className="text-slate-400 hover:text-slate-600 dark:text-slate-500 text-xl leading-none">×</button>
+                </div>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">日期</label>
+                      <input type="date" value={form.date} onChange={(e) => setForm(f=>({...f,date:e.target.value}))}
+                        className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 dark:text-slate-100" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">類型</label>
+                      <select value={form.type} onChange={(e) => setForm(f=>({...f,type:e.target.value}))}
+                        className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 dark:text-slate-100">
+                        {SCHEDULE_TYPES.map(t => <option key={t.key} value={t.key}>{t.key}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">設備 *</label>
+                    <select value={form.equipmentId} onChange={(e) => setForm(f=>({...f,equipmentId:e.target.value}))}
+                      className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 dark:text-slate-100">
+                      <option value="">請選擇設備</option>
+                      {equipment.map(eq => <option key={eq.id} value={eq.id}>{eq.name}（{eq.floor} {eq.zone}）</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">說明</label>
+                    <input value={form.title} onChange={(e) => setForm(f=>({...f,title:e.target.value}))}
+                      className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 dark:text-slate-100" placeholder="例：更換濾網、半年保養（選填）" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">負責人</label>
+                    <select value={form.assigneeId} onChange={(e) => setForm(f=>({...f,assigneeId:e.target.value}))}
+                      className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 dark:text-slate-100">
+                      <option value="">（不指定）</option>
+                      {staff.filter(s=>s.status==="active").map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">備註</label>
+                    <textarea value={form.note} onChange={(e) => setForm(f=>({...f,note:e.target.value}))} rows="2"
+                      className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 dark:text-slate-100" placeholder="（選填）" />
+                  </div>
+                  {(!form.date || !form.equipmentId) && <p className="text-xs text-red-500">請選擇日期與設備</p>}
+                  <button onClick={handleSave} disabled={saving || !form.date || !form.equipmentId}
+                    className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-sm">
+                    {saving ? "儲存中..." : "儲存排程"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -1525,11 +1792,13 @@ function App() {
   const recordsFs = useFirestoreCollection("records", INITIAL_RECORDS);
   const staffFs = useFirestoreCollection("staff", INITIAL_STAFF);
   const sparePartsFs = useFirestoreCollection("spareParts", INITIAL_SPARE_PARTS);
+  const schedulesFs = useFirestoreCollection("schedules", []);
   const categories = categoriesFs.items;
   const equipment = equipmentFs.items;
   const records = recordsFs.items;
   const staff = staffFs.items;
   const spareParts = sparePartsFs.items;
+  const schedules = schedulesFs.items;
   // 讀取設備專屬 QR 碼深層連結參數（#eq=設備編號）
   const [scanEquipmentId, setScanEquipmentId] = useState(() => readEqParam());
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("emm_dark_mode") === "1");
@@ -1616,6 +1885,8 @@ function App() {
           onUpdate={staffFs.updateItem}
           onDelete={staffFs.removeItem}
         />}
+        {tab === "schedule" && <ScheduleView user={user} schedules={schedules} equipment={equipment} staff={staff} isAdmin={isAdmin}
+          onAdd={schedulesFs.addItem} onUpdate={schedulesFs.updateItem} onDelete={schedulesFs.removeItem} />}
         {tab === "records" && <RecordsView user={user} records={records} equipment={equipment} categories={categories} staff={staff} />}
         {tab === "analytics" && <AnalyticsView user={user} records={records} equipment={equipment} categories={categories} staff={staff} />}
       </div>
