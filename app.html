@@ -897,35 +897,33 @@ function ScheduleView({ user, schedules, equipment, staff, isAdmin, onAdd, onUpd
                 </div>
                 <button onClick={() => setPopup(null)} className="text-slate-400 hover:text-slate-600 dark:text-slate-500 text-xl leading-none">×</button>
               </div>
-              <ul className="space-y-2.5">
+              <ul className="space-y-2">
                 {items.map(s => {
                   const eq = equipment.find(e => e.id === s.equipmentId);
                   const assignee = staff.find(st => st.id === s.assigneeId);
+                  const creator = staff.find(st => st.id === s.createdBy);
+                  const creatorName = creator?.name || s.createdBy || "";
+                  const createdAt = s.createdAt ? s.createdAt.slice(0, 16).replace("T", " ") : "";
+                  const mainTitle = s.type === "事件" ? (s.title || "（未命名事件）") : (eq?.name || s.equipmentId);
+                  const subText = s.type === "事件" ? s.note : ([s.title, s.note].filter(Boolean).join("　"));
                   return (
-                    <li key={s.id} className="border border-slate-100 dark:border-slate-700 rounded-xl p-3 space-y-1">
-                      <div className="font-medium text-slate-800 dark:text-slate-100 text-sm">
-                        {s.type === "事件" ? (s.title || "（未命名事件）") : (eq?.name || s.equipmentId)}
-                      </div>
-                      {s.type !== "事件" && eq && (
-                        <div className="text-xs text-slate-400 dark:text-slate-500">{eq.floor} {eq.zone} · {eq.qr}</div>
-                      )}
-                      {s.type !== "事件" && s.title && (
-                        <div className="text-xs text-slate-500 dark:text-slate-400">說明：{s.title}</div>
-                      )}
-                      {assignee && (
-                        <div className="text-xs text-slate-500 dark:text-slate-400">負責人：{assignee.name}</div>
-                      )}
-                      {s.note && (
-                        <div className="text-xs text-slate-400 dark:text-slate-500">備註：{s.note}</div>
-                      )}
-                      {isAdmin && (
-                        <div className="flex gap-3 pt-1">
-                          <button onClick={() => { setPopup(null); selectDay(Number(popup.date.slice(8))); openEdit(s); }}
-                            className="text-xs text-blue-500 hover:underline">編輯</button>
-                          <button onClick={() => { handleDelete(s.id); setPopup(null); }}
-                            className="text-xs text-red-400 hover:underline">刪除</button>
+                    <li key={s.id} className="border border-slate-100 dark:border-slate-700 rounded-xl p-3.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-slate-800 dark:text-slate-100 text-sm mb-1">{mainTitle}</div>
+                          {subText && <div className="text-xs text-slate-500 dark:text-slate-400 mb-1.5">{subText}</div>}
+                          {s.type !== "事件" && assignee && (
+                            <div className="text-xs text-slate-400 dark:text-slate-500 mb-1">負責人：{assignee.name}</div>
+                          )}
+                          <div className="text-xs text-slate-400 dark:text-slate-500">
+                            {creatorName}{creatorName && createdAt ? " · " : ""}{createdAt}
+                          </div>
                         </div>
-                      )}
+                        {isAdmin && (
+                          <button onClick={() => { handleDelete(s.id); setPopup(null); }}
+                            className="shrink-0 text-xs text-red-400 hover:text-red-600 dark:hover:text-red-300">刪除</button>
+                        )}
+                      </div>
                     </li>
                   );
                 })}
